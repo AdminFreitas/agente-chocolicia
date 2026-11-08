@@ -1,0 +1,20 @@
+{
+  "criacao": [
+    {"provedor": "gemini", "modelo": "", "familia": ""}
+  ],
+  "reparo": [
+    {"provedor": "gemini", "modelo": "", "familia": ""}
+  ],
+  "revisao": [
+    {"provedor": "groq", "modelo": "", "familia": ""}
+  ],
+  "extracao": [
+    {"provedor": "gemini", "modelo": "", "familia": ""}
+  ],
+  "seo": [
+    {"provedor": "openrouter", "modelo": "", "familia": ""}
+  ],
+  "visao": [
+    {"provedor": "gemini", "modelo": "", "familia": ""}
+  ]
+}

@@ -1,0 +1,44 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+
+# Ambientes virtuais
+.venv/
+venv/
+
+# Arquivos de ambiente e credenciais
+.env
+.env.*
+!.env.example
+env.example
+.neon
+*.pem
+*.key
+*.p12
+
+# Bancos de dados locais
+*.db
+
+# Arquivos temporários e backups
+*.backup*
+.cleanup_backup/
+_legado/
+api_conflito_backup/
+database_backup/
+actions-runner/
+
+# Dependências Node.js
+node_modules/
+
+# Saídas e arquivos gerados
+output/
+content/
+logs/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

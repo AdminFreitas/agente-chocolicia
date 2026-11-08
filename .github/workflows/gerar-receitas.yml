@@ -1,0 +1,127 @@
+name: Gerar receita (Chocolícia)
+
+# Roda todo dia às 08h em Brasília. O cron do GitHub Actions usa UTC; o Brasil
+# está em UTC-3 e não tem horário de verão, então 08h BRT = 11h UTC.
+#
+# O fluxo fica DESLIGADO até a variável do repositório AGENT_ENABLED valer "true"
+# (Settings > Secrets and variables > Actions > Variables).
+#
+# Secrets (Settings > Secrets and variables > Actions > Secrets):
+#   SITE_TOKEN_DRAFT, SITE_TOKEN_PUBLISH, SITE_TOKEN_DRAFT_PREVIEW,
+#   DATABASE_URL_AGENTE, PESQUISA_API_KEY, PIXABAY_API_KEY, PEXELS_API_KEY,
+#   e as chaves dos provedores de IA que estiverem em config/modelos_aprovados.json
+#   (os exemplos abaixo são GEMINI_API_KEY, GROQ_API_KEY e OPENROUTER_API_KEY;
+#   apague os que não usar).
+# Variables:
+#   AGENT_ENABLED, AGENT_PHASE (0 a 3), SITE_BASE_URL, SITE_BASE_URL_PREVIEW,
+#   PESQUISA_PROVEDOR.
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Gera e valida, mas não envia ao site"
+        type: boolean
+        default: true
+      target:
+        description: "Ambiente de destino"
+        type: choice
+        options:
+          - preview
+          - producao
+        default: preview
+
+permissions:
+  contents: read
+
+# Impede duas execuções ao mesmo tempo (manual e agendada, por exemplo).
+concurrency:
+  group: agente-chocolicia-gerar
+  cancel-in-progress: false
+
+jobs:
+  receita:
+    if: ${{ vars.AGENT_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # --- Execução ---
+      TARGET: ${{ inputs.target || 'producao' }}
+      DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
+      CONTRACT_VERSION: "1"
+
+      # --- Site (o agente só fala com o site por API) ---
+      SITE_BASE_URL_PROD: ${{ vars.SITE_BASE_URL }}
+      SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
+      SITE_TOKEN_DRAFT_PROD: ${{ secrets.SITE_TOKEN_DRAFT }}
+      SITE_TOKEN_PUBLISH_PROD: ${{ secrets.SITE_TOKEN_PUBLISH }}
+      SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
+
+      # --- Banco do agente (histórico, fila e custo; NÃO é o banco do site) ---
+      DATABASE_URL_AGENTE: ${{ secrets.DATABASE_URL_AGENTE }}
+
+      # --- Provedores de IA (somente os da lista de modelos aprovados) ---
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+      # --- Pesquisa na web ---
+      PESQUISA_PROVEDOR: ${{ vars.PESQUISA_PROVEDOR }}
+      PESQUISA_API_KEY: ${{ secrets.PESQUISA_API_KEY }}
+
+      # --- Imagens (bancos de imagens) ---
+      PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Gerar receita
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Escolhe o destino e o token. Em preview nunca há token de publicação.
+          if [ "${TARGET}" = "preview" ]; then
+            export SITE_BASE_URL="${SITE_BASE_URL_PREVIEW}"
+            export SITE_TOKEN_DRAFT="${SITE_TOKEN_DRAFT_PREVIEW}"
+            unset SITE_TOKEN_PUBLISH || true
+          else
+            export SITE_BASE_URL="${SITE_BASE_URL_PROD}"
+            export SITE_TOKEN_DRAFT="${SITE_TOKEN_DRAFT_PROD}"
+            # Na Fase 0 o token de publicação não é entregue ao agente.
+            if [ "${AGENT_PHASE}" != "0" ]; then
+              export SITE_TOKEN_PUBLISH="${SITE_TOKEN_PUBLISH_PROD}"
+            fi
+          fi
+
+          ARGS="--receita --target ${TARGET}"
+          if [ "${DRY_RUN}" = "true" ]; then
+            ARGS="${ARGS} --dry-run"
+          fi
+
+          python rodar_agente.py ${ARGS}
+
+      - name: Resumo da execução
+        if: always()
+        shell: bash
+        run: |
+          if [ -f output/resumo-execucao.md ]; then
+            cat output/resumo-execucao.md >> "$GITHUB_STEP_SUMMARY"
+          fi
