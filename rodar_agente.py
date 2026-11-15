@@ -10,12 +10,6 @@ import random
 import sys
 from datetime import datetime
 
-from config.database import SessionLocal
-from agents import pesquisador
-from repositories.artigo_repository import ArtigoRepository
-from pipeline.gerar_artigos import gerar_e_processar_artigo
-
-
 PUBLICAR_IMEDIATAMENTE = True
 
 CATEGORIAS_ARTIGOS = [
@@ -46,6 +40,9 @@ def _buscar_temas_recentes(limite: int = 30) -> list[str]:
     coisa falhar aqui, a geração do artigo não deve travar por causa
     disso, só perde o contexto de "não repita esses temas".
     """
+    from config.database import SessionLocal
+    from repositories.artigo_repository import ArtigoRepository
+
     db = SessionLocal()
     try:
         artigos = ArtigoRepository(db).listar_todos(limite=limite)
@@ -72,37 +69,8 @@ def rodar_artigo(publicar: bool | None = None) -> bool:
     real — nunca lança exceção, quem chama decide o que fazer com o
     resultado (ex.: exit code pro cron/GitHub Actions perceber falha).
     """
-    publicar_imediatamente = (
-        PUBLICAR_IMEDIATAMENTE if publicar is None else publicar
-    )
-
-    categoria = random.choice(CATEGORIAS_ARTIGOS)
-    temas_recentes = _buscar_temas_recentes(limite=30)
-
-    try:
-        tema = pesquisador.sugerir_tema(
-            categoria,
-            temas_recentes=temas_recentes,
-        )
-    except Exception as e:
-        _log(f"FALHA ao sugerir tema: {e}")
-        return False
-
-    _log(f"Tema sugerido ({categoria}): {tema}")
-
-    try:
-        resultado = gerar_e_processar_artigo(
-            tema,
-            categoria,
-            publicar_imediatamente=publicar_imediatamente,
-        )
-        _log(f"Artigo OK: {resultado}")
-
-        return True
-
-    except Exception as e:
-        _log(f"FALHA ao gerar artigo: {e}")
-        return False
+    _log("FALHA: --artigo foi removido na refatoração; use --receita no prompt 3")
+    return False
 
 
 if __name__ == "__main__":
