@@ -1,12 +1,25 @@
 """
 services/image_providers/base.py — Interface base e modelo de dados padronizado
-para provedores de imagens externas no projeto Chocolícia.
+dos provedores de imagens (docs/01 §8.2; docs/08 §4.9).
+
+Regras desta camada:
+- O agente NÃO armazena imagem (nem em disco, nem em banco): só busca e verifica.
+  O site baixa, trata e armazena (docs/06 §7.1).
+- `IMAGE_HOSTS` lista os hosts de IMAGEM de cada provedor, para o filtro IMG-03.
+  PENDENTE (docs/06 §18): conferir com os termos de cada provedor e manter igual
+  à lista do servidor do site. Os valores abaixo NÃO foram verificados.
 """
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+
+def user_agent() -> str:
+    """User-Agent honesto do Chocolícia (docs/02 §11). Usa SITE_BASE_URL, sem domínio fixo no código."""
+    site = os.getenv("SITE_BASE_URL", "").strip()
+    return f"ChocoliciaAgent/1.0 (+{site})" if site else "ChocoliciaAgent/1.0"
 
 
 @dataclass
@@ -15,21 +28,22 @@ class StandardImageResult:
     provider: str                      # "pixabay" | "openverse" | "pexels" | "wikimedia"
     provider_image_id: str             # ID único no provedor
     title: str                         # Título ou descrição da imagem
-    original_image_url: str            # URL direta para download da imagem
+    original_image_url: str            # URL direta da imagem
     original_page_url: str             # Página de origem no banco de imagens
-    photographer: str                  # Nome do autor/fotógrafo
-    photographer_url: Optional[str]    # Perfil do fotógrafo
-    license: str                       # Nome da licença (ex: CC0, Pixabay License, Pexels License)
+    photographer: str                  # Autor
+    photographer_url: Optional[str]    # Perfil do autor
+    license: str                       # Nome da licença como veio do provedor
     license_url: Optional[str]         # Link oficial da licença
-    attribution_text: str              # Texto de atribuição recomendado (ex: "Foto: Fulano via Pexels")
-    width: int                         # Largura em pixels
-    height: int                        # Altura em pixels
-    aspect_ratio: float = 0.0          # Proporção width / height
-    is_horizontal: bool = True         # Se a imagem é horizontal/paisagem
-    is_commercial_friendly: bool = True # Se a licença permite uso comercial
+    attribution_text: str              # Texto de atribuição (ex.: "Foto: Fulano via Pexels")
+    width: int                         # Largura em pixels (0 = desconhecida)
+    height: int                        # Altura em pixels (0 = desconhecida)
+    aspect_ratio: float = 0.0
+    is_horizontal: bool = True
+    # Informativo. A decisão de licença é de services/image_providers/licencas.py.
+    is_commercial_friendly: bool = True
     tags: List[str] = field(default_factory=list)
-    search_query: str = ""             # Termo que encontrou a imagem
-    raw_data: Dict[str, Any] = field(default_factory=dict)
+    search_query: str = ""
+    raw_data: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         if self.height > 0:
@@ -38,7 +52,10 @@ class StandardImageResult:
 
 
 class ImageProvider(ABC):
-    """Classe base abstrata para todos os adaptadores de bancos de imagens."""
+    """Classe base abstrata dos adaptadores de bancos de imagens."""
+
+    # Hosts de imagem do provedor (IMG-03). Vazio = o provedor não contribui com hosts.
+    IMAGE_HOSTS: Tuple[str, ...] = ()
 
     def __init__(self, name: str, enabled: bool = True):
         self.name = name
@@ -46,8 +63,7 @@ class ImageProvider(ABC):
 
     @abstractmethod
     def is_available(self) -> bool:
-        """Verifica se o provedor está configurado e disponível para uso."""
-        pass
+        """Verifica se o provedor está configurado e disponível."""
 
     @abstractmethod
     def search(
@@ -56,11 +72,6 @@ class ImageProvider(ABC):
         limit: int = 10,
         min_width: int = 1280,
         lang: str = "pt",
-        **kwargs
+        **kwargs,
     ) -> List[StandardImageResult]:
-        """
-        Executa a busca de imagens culinárias no provedor.
-        Retorna lista de StandardImageResult ordenados por relevância/qualidade.
-        """
-        pass
-
+        """Busca imagens. Devolve candidatas; quem decide é o seletor (licença, largura, host)."""

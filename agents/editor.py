@@ -1,665 +1,375 @@
 """
-editor.py -- Agente Editor / Redator  (PATCH v1: debug + fallback de chaves)
+editor.py — Etapa 4 do fluxo (docs/01 §7.2): criação original pelo Chef IA (receita e dica).
 
-Mudancas:
-  1. Debug print no ponto do ValueError (incompleta) mostrando chaves reais
-  2. Fallback de chaves alternativas no parser (corpo, conteudo, texto, body)
-  3. Fallback de chaves para resumo (excerpt, summary, descricao)
+Base: docs/03-PROMPT-SISTEMA.md §2 (camadas), §4-§6 (regras e módulo de receita),
+§10 (entrada), §12 (validação e reparo) e §13 (robustez).
+
+O que este módulo faz:
+- monta o prompt em camadas (services/carregador_prompts.py);
+- chama o modelo da tarefa "criacao" (e "reparo" nas correções);
+- valida a saída com Pydantic: SCH-01 (JSON), SCH-02 (esquema), SCH-03 (limites)
+  e SCH-04 (o modelo não pode preencher campos do sistema: extra="forbid");
+- até 2 reparos (03 §12.2), sempre revalidando a resposta inteira;
+- NÃO há bypass de ficha: sem ficha aprovada, não cria.
+
+O que NÃO faz (PENDENTE: validators/, docs/08): SCH-05 a SCH-07, NUM, CUL, ALG,
+SEG, HON, SIM, IMG e SEO. Entram pela interface `Validador`. Sem validador, o
+resultado é "pendente_validacao", nunca "aprovado".
+
+O CÓDIGO, não o modelo, define dificuldade, tempos de consenso, rendimento,
+dieta, ocasiões, armazenamento, slug, autor, aviso e status (03 §6.2): isso é
+feito no adaptador (Etapa 4) e nos validadores.
 """
 
 from __future__ import annotations
 
 import json
-import re
-import unicodedata
+from dataclasses import dataclass, field
+from typing import Any, Callable, Protocol
 
-from services.llm_service import gerar_texto_com_metadados
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from services import carregador_prompts as cp
+from services.llm_cliente import GerarFn, extrair_json, gerar_padrao
 
-# ---------------------------------------------------------------------------
-# Constantes
-# ---------------------------------------------------------------------------
-
-_RE_LINK_MD = re.compile(
-    r"\[([^\]]+)\]\((https?://[^\s)]+)\)"
-)
-
-_RE_BLOCO_IMAGEM = re.compile(
-    r"\[IMAGEM\](.*?)\[/IMAGEM\]",
-    re.DOTALL | re.IGNORECASE,
-)
-
-_CAMPOS_IMAGEM_OBRIGATORIOS = (
-    "tipo",
-    "assunto",
-    "motivo",
-)
+MAX_REPAROS = 2  # 03 §12.2
+FAMILIAS_ESTRITAS = ("SEG", "ALG", "HON")  # 03 §12.2: o reparo só corrige o trecho apontado
 
 
-# ---------------------------------------------------------------------------
-# API publica
-# ---------------------------------------------------------------------------
-
-def gerar_artigo_base(
-    tema: str,
-    categoria: str,
-    briefing: dict | None = None,
-) -> dict:
-    briefing = briefing or {}
-    urls_permitidas = _extrair_urls_permitidas(briefing)
-
-    prompt = _montar_prompt_artigo(
-        tema,
-        categoria,
-        briefing,
-        urls_permitidas,
-    )
-
-    resultado_llm = gerar_texto_com_metadados(prompt)
-
-    dados = _parsear_resposta(
-        resultado_llm["texto"],
-        contexto="artigo",
-    )
-
-    corpo_validado = _validar_links(
-        dados["corpo"],
-        urls_permitidas,
-    )
-
-    corpo_validado = _validar_blocos_imagem(
-        corpo_validado,
-    )
-
-    return {
-        "slug": _gerar_slug(dados["titulo"]),
-        "titulo": dados["titulo"],
-        "categoria": categoria,
-        "excerpt": dados["excerpt"],
-        "conteudo_markdown": corpo_validado,
-        "provedor_llm": resultado_llm["provedor"],
-        "modelo_llm": resultado_llm["modelo"],
-        "tempo_geracao_ms": resultado_llm["tempo_ms"],
-    }
+# --------------------------------------------------------------------------
+# Esquema de saída da receita (docs/03 §6.2). Nomes e limites da tabela.
+# --------------------------------------------------------------------------
 
 
-def gerar_noticia_base(
-    fonte: dict,
-    categoria: str,
-) -> dict:
-    if (
-        not fonte
-        or not fonte.get("titulo")
-        or not fonte.get("resumo")
-    ):
-        raise ValueError(
-            "gerar_noticia_base: 'fonte' precisa ter pelo menos "
-            "'titulo' e 'resumo' preenchidos -- material insuficiente "
-            "para escrever a noticia"
-        )
-
-    url_fonte = fonte.get("link")
-    urls_permitidas = {url_fonte} if url_fonte else set()
-
-    prompt = _montar_prompt_noticia(fonte, categoria)
-    resultado_llm = gerar_texto_com_metadados(prompt)
-
-    dados = _parsear_resposta(
-        resultado_llm["texto"],
-        contexto="noticia",
-    )
-
-    corpo_validado = _validar_links(dados["corpo"], urls_permitidas)
-
-    return {
-        "slug": _gerar_slug(dados["titulo"]),
-        "titulo": dados["titulo"],
-        "categoria": categoria,
-        "excerpt": dados["excerpt"],
-        "conteudo_markdown": corpo_validado,
-        "provedor_llm": resultado_llm["provedor"],
-        "modelo_llm": resultado_llm["modelo"],
-        "tempo_geracao_ms": resultado_llm["tempo_ms"],
-    }
+class _Base(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # SCH-04
 
 
-# ---------------------------------------------------------------------------
-# Construcao de prompts
-# ---------------------------------------------------------------------------
+class ItemIngrediente(_Base):
+    nome: str = Field(min_length=1, max_length=180)
+    quantidade: str = Field(min_length=1, max_length=80)
+    unidade: str = Field(min_length=1, max_length=40)  # vocabulário: NUM-07 (validators)
+    observacao: str | None = Field(default=None, max_length=180)
 
-_INSTRUCOES_FORMATO = """
-Responda SOMENTE com um objeto JSON valido.
+    @field_validator("quantidade", mode="before")
+    @classmethod
+    def _numero_vira_texto(cls, v):
+        return str(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else v
 
-NAO use bloco de codigo Markdown.
-NAO use ```json.
-NAO escreva nenhuma frase antes do JSON.
-NAO escreva nenhuma frase depois do JSON.
+    @field_validator("observacao", mode="before")
+    @classmethod
+    def _vazio_vira_none(cls, v):
+        return None if isinstance(v, str) and not v.strip() else v
 
-O JSON deve ter exatamente estas tres chaves:
 
-{
-  "titulo": "titulo editorial, uma frase, sem clickbait",
-  "resumo": "resumo de no maximo 120 caracteres",
-  "corpo_markdown": "conteudo completo em Markdown"
+class SecaoIngredientes(_Base):
+    nome: str = Field(min_length=1, max_length=100)  # SITE: ingredientSectionSchema (shared/recipes.ts:24)
+    itens: list[ItemIngrediente] = Field(min_length=1, max_length=80)
+
+
+class Passo(_Base):
+    instrucao: str = Field(min_length=1, max_length=1200)
+    titulo: str | None = Field(default=None, max_length=120)
+
+    @field_validator("titulo", mode="before")
+    @classmethod
+    def _vazio_vira_none(cls, v):
+        return None if isinstance(v, str) and not v.strip() else v
+
+
+class PerguntaFrequente(_Base):
+    # 03 §6.2 não nomeia as chaves; limites de 06 §6.2 (faq). PENDENTE: confirmar nomes.
+    pergunta: str = Field(min_length=1, max_length=240)
+    resposta: str = Field(min_length=1, max_length=1200)
+
+
+class RespostaReceita(_Base):
+    titulo: str = Field(min_length=5, max_length=180)
+    descricao_curta: str = Field(min_length=20, max_length=160)
+    introducao: str | None = None
+    subcategoria: str = Field(min_length=1)
+    tempo_preparo_min: int = Field(ge=1, le=1440)
+    tempo_cozimento_min: int | None = Field(default=None, ge=0, le=1440)
+    tempo_descanso_min: int | None = Field(default=None, ge=0, le=10080)
+    rendimento_porcoes: int = Field(ge=1, le=500)
+    rendimento_texto: str | None = Field(default=None, max_length=80)
+    ingredientes: list[SecaoIngredientes] = Field(min_length=1, max_length=20)
+    modo_preparo: list[Passo] = Field(min_length=4, max_length=20)
+    dica_extra: str | None = Field(default=None, max_length=1000)
+    perguntas_frequentes: list[PerguntaFrequente] = Field(default_factory=list, max_length=5)
+    tags: list[str] = Field(default_factory=list, max_length=12)
+    termos_busca_imagem: list[str] = Field(min_length=3, max_length=5)
+    prompt_imagem: str = Field(min_length=1, max_length=2000)
+    texto_alt_imagem: str = Field(min_length=20, max_length=140)
+    temas_relacionados: list[str] = Field(min_length=2, max_length=6)
+    alertas_internos: list[str]
+
+    @field_validator("introducao", "dica_extra", "rendimento_texto", mode="before")
+    @classmethod
+    def _vazio_vira_none(cls, v):
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, v):
+        for t in v:
+            if not (1 <= len(t) <= 40):
+                raise ValueError("cada tag deve ter de 1 a 40 caracteres")
+        return v
+
+
+# --------------------------------------------------------------------------
+# Esquema de saída da dica (docs/03 §7 e docs/04 §10)
+# --------------------------------------------------------------------------
+
+PALAVRAS_DICA = (150, 400)  # docs/03 §7 item 6 e docs/04 §10 ("tamanho inicial", a calibrar)
+
+
+class RespostaDica(_Base):
+    titulo: str = Field(min_length=5, max_length=180)
+    descricao_curta: str = Field(min_length=20, max_length=160)
+    assunto: str = Field(min_length=1, max_length=60)  # vem da pauta (SCH-04 confere)
+    # 03 §7 pede "1 ou 2 frases"; o limite de caracteres não é definido (600 é parâmetro nosso).
+    resposta_direta: str = Field(min_length=1, max_length=600)
+    corpo: str = Field(min_length=1)  # markdown; resposta direta, motivo, passos e como evitar
+    tags: list[str] = Field(default_factory=list, max_length=12)
+    temas_relacionados: list[str] = Field(min_length=2, max_length=4)  # 03 §7 item 8
+    subcategoria: str | None = None  # opcional em dica (04 §6.7)
+    termos_busca_imagem: list[str] = Field(min_length=3, max_length=5)
+    prompt_imagem: str = Field(min_length=1, max_length=2000)
+    alertas_internos: list[str]
+
+    @field_validator("subcategoria", mode="before")
+    @classmethod
+    def _vazio_vira_none(cls, v):
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @field_validator("corpo")
+    @classmethod
+    def _tamanho(cls, v):
+        n = len(v.split())
+        if not (PALAVRAS_DICA[0] <= n <= PALAVRAS_DICA[1]):
+            raise ValueError(f"tamanho: o corpo tem {n} palavras; o esperado é de {PALAVRAS_DICA[0]} a {PALAVRAS_DICA[1]}")
+        return v
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, v):
+        for t in v:
+            if not (1 <= len(t) <= 40):
+                raise ValueError("cada tag deve ter de 1 a 40 caracteres")
+        return v
+
+
+# --------------------------------------------------------------------------
+# Falhas e interface dos validadores (PENDENTE: validators/, docs/08)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Falha:
+    """PENDENTE: unificar com validators/base.py (Passo 7a). IDs como em docs/08 §4."""
+
+    id: str
+    detalhe: str
+    gravidade: str = "bloqueante"  # "bloqueante" | "aviso"
+    campo: str | None = None
+
+
+class Validador(Protocol):
+    def validar(self, conteudo: dict, contexto: dict) -> list[Falha]: ...
+
+
+_TIPOS_LIMITE = {
+    "string_too_short", "string_too_long", "too_short", "too_long",
+    "greater_than_equal", "less_than_equal", "greater_than", "less_than",
 }
 
-IMPORTANTE SOBRE O CAMPO "corpo_markdown":
 
-O valor de "corpo_markdown" deve ser uma STRING JSON valida.
-
-Portanto, quebras de linha dentro dessa string devem ser representadas
-com \\n.
-
-Exemplo valido:
-
-{
-  "titulo": "Exemplo",
-  "resumo": "Resumo do artigo",
-  "corpo_markdown": "# Titulo\\n\\n## Introducao\\n\\nTexto do artigo."
-}
-
-NAO coloque quebras de linha literais dentro de uma string JSON.
-""".strip()
-
-
-def _montar_prompt_artigo(
-    tema: str,
-    categoria: str,
-    briefing: dict,
-    urls_permitidas: set[str],
-) -> str:
-
-    angulo = briefing.get("angulo") or briefing.get("angle")
-    pergunta_principal = briefing.get("pergunta_principal")
-    fatos = briefing.get("fatos_confirmados") or briefing.get("fatos")
-    contexto = briefing.get("contexto")
-
-    partes_briefing = [
-        f"Tema: {tema}",
-        f"Categoria: {categoria}",
-    ]
-
-    if angulo:
-        partes_briefing.append(f"Angulo editorial sugerido: {angulo}")
-    if pergunta_principal:
-        partes_briefing.append(f"Pergunta principal do leitor: {pergunta_principal}")
-    if fatos:
-        partes_briefing.append(
-            "Fatos confirmados a considerar: " + _formatar_lista(fatos)
-        )
-    if contexto:
-        partes_briefing.append(f"Contexto adicional: {contexto}")
-
-    if urls_permitidas:
-        partes_briefing.append(
-            "URLs oficiais/confiaveis disponiveis "
-            "(use como link SOMENTE se for editorialmente "
-            "util, nunca invente outra): "
-            + ", ".join(sorted(urls_permitidas))
-        )
-    else:
-        partes_briefing.append(
-            "Nenhuma URL confiavel foi fornecida -- "
-            "NAO inclua nenhum link no texto."
-        )
-
-    briefing_formatado = "\n".join(f"- {linha}" for linha in partes_briefing)
-
-    return f"""Voce e o Editor/Redator do blog de tecnologia DigitalTech.
-
-O DigitalTech tem identidade propria:
-
-- tecnologia
-- ciberseguranca
-- OSINT
-- privacidade
-- inteligencia artificial
-- infraestrutura
-- programacao
-- bancos de dados
-- casos tecnologicos incomuns
-
-Sempre trabalhe com apuracao real.
-
-Nunca use sensacionalismo.
-Nunca apresente teoria da conspiracao como fato.
-Se algo for hipotese ou especulacao, deixe isso claramente
-identificado no texto.
-
-Escreva um ARTIGO EVERGREEN.
-Nao e uma noticia.
-
-Use esta pauta:
-
-{briefing_formatado}
-
-Regras editoriais obrigatorias:
-
-- Priorize utilidade pratica.
-- Explique os conceitos de maneira clara.
-- Use exemplos praticos quando fizer sentido.
-- Use comparacoes quando forem uteis.
-- Use passo a passo quando o assunto permitir.
-- O tamanho deve ser suficiente para explicar o assunto.
-- Nao encha linguica apenas para aumentar a quantidade de palavras.
-- Use titulos e subtitulos em Markdown.
-- Use listas quando ajudarem a leitura.
-- Use blocos de codigo quando forem realmente necessarios.
-- O titulo deve ser claro, especifico e sem clickbait.
-- Nunca invente fatos.
-- Nunca invente URLs.
-- So utilize URLs presentes na lista fornecida.
-- Se nenhuma URL foi fornecida, nao coloque links externos.
-
-Marcadores de imagem:
-
-Quando uma imagem realmente ajudar o leitor, use EXATAMENTE este formato:
-
-[IMAGEM]
-tipo: diagrama
-assunto: descricao objetiva da imagem
-motivo: explicacao de por que a imagem ajuda o leitor
-[/IMAGEM]
-
-Os valores permitidos para "tipo" sao:
-
-- diagrama
-- screenshot
-- foto
-
-NAO use:
-
-[IMAGEM: diagrama
-
-NAO use marcadores incompletos.
-
-Use imagens com moderacao.
-
-Se o assunto envolver opiniao, hipotese ou algo ainda nao confirmado,
-dejixe isso explicitamente claro no texto.
-
-{_INSTRUCOES_FORMATO}
-"""
-
-
-def _montar_prompt_noticia(fonte: dict, categoria: str) -> str:
-    return f"""Voce e o Editor/Redator do blog de tecnologia DigitalTech,
-escrevendo a secao de NOTICIAS.
-
-Material bruto:
-
-Titulo original:
-{fonte['titulo']}
-
-Resumo original:
-{fonte['resumo']}
-
-Fonte:
-{fonte.get('fonte', 'nao informada')}
-
-IMPORTANTE:
-
-NUNCA copie frases do material original.
-
-Escreva com suas proprias palavras.
-Use o material somente como referencia factual.
-
-Categoria:
-{categoria}
-
-Regras editoriais obrigatorias:
-
-- Explique primeiro o que aconteceu.
-- Informe quando aconteceu, se essa informacao estiver disponivel.
-- Identifique quem esta envolvido.
-- Separe claramente o que foi confirmado do que ainda nao foi confirmado.
-- Explique por que o acontecimento importa.
-- Explique quem pode ser afetado.
-- Acrescente apenas contexto que possa ser sustentado pelo material.
-- NAO invente informacao.
-- Se o material for curto, o texto tambem deve ser curto.
-- Nao invente detalhes para atingir uma quantidade de palavras.
-- Titulo claro e especifico.
-- Sem clickbait.
-- Nao utilize marcador de imagem em noticia curta.
-
-{_INSTRUCOES_FORMATO}
-"""
-
-
-# ---------------------------------------------------------------------------
-# Utilitarios
-# ---------------------------------------------------------------------------
-
-def _formatar_lista(valor) -> str:
-    if isinstance(valor, (list, tuple, set)):
-        return "; ".join(str(item) for item in valor)
-    return str(valor)
-
-
-def _extrair_urls_permitidas(briefing: dict) -> set[str]:
-    urls: set[str] = set()
-    for chave in ("links", "urls", "fontes"):
-        valor = briefing.get(chave)
-        if not valor:
-            continue
-        if isinstance(valor, str):
-            urls.add(valor)
-        elif isinstance(valor, (list, tuple, set)):
-            for item in valor:
-                if isinstance(item, str):
-                    urls.add(item)
-                elif isinstance(item, dict) and item.get("url"):
-                    urls.add(item["url"])
-                elif isinstance(item, dict) and item.get("link"):
-                    urls.add(item["link"])
-    link_unico = briefing.get("link")
-    if isinstance(link_unico, str):
-        urls.add(link_unico)
-    return {
-        url for url in urls
-        if isinstance(url, str) and url.startswith(("http://", "https://"))
-    }
-
-
-# ---------------------------------------------------------------------------
-# Parsing da resposta do LLM  (PATCH: debug + fallback de chaves)
-# ---------------------------------------------------------------------------
-
-def _sanitizar_controle_json(texto: str) -> str:
-    resultado = []
-    dentro_string = False
-    escapado = False
-
-    for caractere in texto:
-        if dentro_string:
-            if escapado:
-                resultado.append(caractere)
-                escapado = False
-                continue
-            if caractere == "\\":
-                resultado.append(caractere)
-                escapado = True
-                continue
-            if caractere == '"':
-                resultado.append(caractere)
-                dentro_string = False
-                continue
-            codigo = ord(caractere)
-            if caractere == "\n":
-                resultado.append("\\n")
-                continue
-            if caractere == "\r":
-                resultado.append("\\r")
-                continue
-            if caractere == "\t":
-                resultado.append("\\t")
-                continue
-            if codigo < 0x20:
-                continue
-            resultado.append(caractere)
-            continue
-
-        if caractere == '"':
-            resultado.append(caractere)
-            dentro_string = True
-            continue
-        resultado.append(caractere)
-
-    return "".join(resultado)
-
-
-def _extrair_json_de_resposta(texto: str) -> str:
-    texto = texto.strip()
-    texto = re.sub(r"^```(?:json)?\s*", "", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"\s*```$", "", texto)
-    texto = texto.strip()
-
-    inicio = texto.find("{")
-    if inicio == -1:
-        return texto
-
-    profundidade = 0
-    dentro_string = False
-    escapado = False
-
-    for indice in range(inicio, len(texto)):
-        caractere = texto[indice]
-        if dentro_string:
-            if escapado:
-                escapado = False
-                continue
-            if caractere == "\\":
-                escapado = True
-                continue
-            if caractere == '"':
-                dentro_string = False
-            continue
-        if caractere == '"':
-            dentro_string = True
-            continue
-        if caractere == "{":
-            profundidade += 1
-        elif caractere == "}":
-            profundidade -= 1
-            if profundidade == 0:
-                return texto[inicio : indice + 1]
-
-    return texto[inicio:]
-
-
-# ---------------------------------------------------------------------------
-# NOVO: Fallback de chaves alternativas
-# ---------------------------------------------------------------------------
-
-_CHAVES_TITULO = ("titulo", "title", "titulo_do_artigo", "headline")
-_CHAVES_RESUMO = ("resumo", "excerpt", "summary", "descricao", "description")
-_CHAVES_CORPO = (
-    "corpo_markdown",
-    "corpo",
-    "conteudo",
-    "conteudo_markdown",
-    "texto",
-    "body",
-    "markdown",
-    "content",
-)
-
-
-def _extrair_campo_com_fallback(dados: dict, chaves_esperadas: tuple[str, ...]) -> str:
-    """
-    Tenta extrair um valor string de 'dados' usando varias chaves candidatas.
-    Retorna a primeira que existir e nao for vazia.
-    """
-    for chave in chaves_esperadas:
-        valor = dados.get(chave)
-        if valor is not None:
-            texto = str(valor).strip()
-            if texto:
-                return texto
-    return ""
-
-
-def _parsear_resposta(texto: str, contexto: str) -> dict:
-    if not texto or not texto.strip():
-        raise ValueError(f"Resposta vazia do LLM ao gerar {contexto}")
-
-    texto_limpo = texto.strip()
-    texto_limpo = re.sub(r"^```(?:json)?\s*", "", texto_limpo, flags=re.IGNORECASE)
-    texto_limpo = re.sub(r"\s*```$", "", texto_limpo, flags=re.IGNORECASE)
-    texto_limpo = texto_limpo.strip()
-
-    inicio = texto_limpo.find("{")
-    fim = texto_limpo.rfind("}")
-
-    if inicio != -1 and fim != -1 and fim > inicio:
-        texto_json = texto_limpo[inicio : fim + 1]
-    else:
-        texto_json = texto_limpo
-
-    texto_json = _sanitizar_controle_json(texto_json)
-
+def _falhas_pydantic(exc: ValidationError) -> list[Falha]:
+    falhas = []
+    for e in exc.errors():
+        campo = ".".join(str(p) for p in e["loc"])
+        if e["type"] == "extra_forbidden":
+            id_, det = "SCH-04", "campo que o sistema preenche ou que não existe no contrato"
+        elif e["type"] in _TIPOS_LIMITE or "tamanho:" in e["msg"]:
+            id_, det = "SCH-03", e["msg"]
+        else:
+            id_, det = "SCH-02", e["msg"]
+        falhas.append(Falha(id_, det, campo=campo))
+    return falhas
+
+
+def validar_saida(texto: str, pauta: dict) -> tuple[RespostaReceita | None, list[Falha]]:
+    """SCH-01 a SCH-04 e a regra 'subcategoria vem da pauta' (03 §6.2 e §10)."""
+    dados, erro = extrair_json(texto)
+    if erro:
+        return None, [Falha("SCH-01", erro)]
+    if not isinstance(dados, dict):
+        return None, [Falha("SCH-01", "a resposta deve ser um objeto JSON")]
     try:
-        dados_json = json.loads(texto_json)
-    except json.JSONDecodeError:
-        try:
-            dados_json = _extrair_campos_json_tolerante(texto_json)
-        except Exception as exc:
-            print("\n--- RESPOSTA BRUTA DO LLM (falha no parse) ---")
-            print(texto_json[:5000])
-            print("--- FIM DA RESPOSTA BRUTA ---\n")
-            raise ValueError(
-                f"Resposta do LLM nao e um JSON valido ao gerar {contexto}: {exc}"
-            ) from exc
+        resp = RespostaReceita.model_validate(dados)
+    except ValidationError as exc:
+        return None, _falhas_pydantic(exc)
+    falhas = []
+    if resp.subcategoria != pauta.get("subcategoria"):
+        falhas.append(Falha("SCH-04", "a subcategoria vem da pauta e não pode ser alterada", campo="subcategoria"))
+    return resp, falhas
 
-    if not isinstance(dados_json, dict):
-        raise ValueError(
-            f"Resposta do LLM ao gerar {contexto} nao e um objeto JSON."
+
+# --------------------------------------------------------------------------
+# Resultado e laço de criação/reparo
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class ResultadoCriacao:
+    status: str  # "aprovado" | "pendente_validacao" | "rejeitado"
+    conteudo: dict | None = None
+    tentativas: int = 0  # chamadas ao modelo (1 + reparos)
+    modelo: dict = field(default_factory=dict)  # provedor, modelo e família do gerador
+    prompt_versoes: dict = field(default_factory=dict)
+    prompt_version: str = ""
+    alertas_internos: list[str] = field(default_factory=list)
+    falhas: list[Falha] = field(default_factory=list)
+    historico: list[dict] = field(default_factory=list)
+    rejection_code: str | None = None
+
+
+def _linha_erro(f: Falha) -> str:
+    return f"- {f.id}" + (f" ({f.campo})" if f.campo else "") + f": {f.detalhe}"
+
+
+def _escopo_do_reparo(anterior: dict | None, novo: dict, falhas_anteriores: list[Falha]) -> list[Falha]:
+    """
+    03 §12.2: reprovação por SEG, ALG ou HON só admite correção do trecho
+    apontado. Se o reparo mexer em outro campo de nível superior, reprova.
+    Sem 'campo' informado pelo validador, não há como impor (PENDENTE: validators).
+    """
+    bloq = [f for f in falhas_anteriores if f.gravidade == "bloqueante"]
+    if anterior is None or not bloq or not all(f.id.startswith(FAMILIAS_ESTRITAS) for f in bloq):
+        return []
+    permitidos = {f.campo.split(".")[0] for f in bloq if f.campo}
+    if not permitidos:
+        return []
+    mudou = sorted(k for k in novo if novo.get(k) != anterior.get(k) and k not in permitidos)
+    if not mudou:
+        return []
+    return [Falha("REPARO-ESCOPO", f"o reparo alterou campos fora do trecho apontado: {', '.join(mudou)}", campo=mudou[0])]
+
+
+def _laco_criacao(
+    prompt: str,
+    versoes: dict,
+    validar_texto: Callable[[str], tuple[BaseModel | None, list[Falha]]],
+    contexto: dict,
+    gerar: GerarFn,
+    validador: Validador | None,
+    max_reparos: int,
+) -> ResultadoCriacao:
+    res = ResultadoCriacao(status="rejeitado", prompt_versoes=dict(versoes))
+    resposta = gerar("criacao", prompt)
+    anterior: dict | None = None
+    falhas_ant: list[Falha] = []
+    max_reparos = max(0, min(max_reparos, MAX_REPAROS))
+
+    for tentativa in range(1, max_reparos + 2):
+        res.tentativas = tentativa
+        res.modelo = resposta.info()
+        resp, falhas = validar_texto(resposta.texto)
+        conteudo = resp.model_dump() if resp is not None else None
+        if conteudo is not None:
+            res.alertas_internos = list(conteudo.get("alertas_internos", []))
+            falhas = falhas + _escopo_do_reparo(anterior, conteudo, falhas_ant)
+            if not any(f.gravidade == "bloqueante" for f in falhas) and validador is not None:
+                falhas = falhas + list(validador.validar(conteudo, contexto))
+        bloqueantes = [f for f in falhas if f.gravidade == "bloqueante"]
+        res.historico.append({"tentativa": tentativa, "falhas": [f.id for f in bloqueantes]})
+        res.falhas = falhas
+
+        if not bloqueantes:
+            res.conteudo = conteudo
+            res.status = "aprovado" if validador is not None else "pendente_validacao"
+            break
+        if tentativa > max_reparos:
+            res.rejection_code = bloqueantes[0].id  # 07 §4.3: código da verificação
+            break
+
+        rep = cp.carregar("reparo")
+        res.prompt_versoes["reparo"] = rep.versao
+        texto_rep = cp.renderizar(
+            rep,
+            ERROS="\n".join(_linha_erro(f) for f in bloqueantes),
+            RESPOSTA_ANTERIOR=resposta.texto[:20000].replace("<", "\\u003c"),
         )
+        anterior, falhas_ant = conteudo, falhas
+        resposta = gerar("reparo", f"{prompt}\n\n{texto_rep}")
 
-    # ------------------------------------------------------------------
-    # PATCH: extracao com fallback de chaves alternativas + DEBUG
-    # ------------------------------------------------------------------
-    titulo = _extrair_campo_com_fallback(dados_json, _CHAVES_TITULO)
-    excerpt = _extrair_campo_com_fallback(dados_json, _CHAVES_RESUMO)
-    corpo = _extrair_campo_com_fallback(dados_json, _CHAVES_CORPO)
-
-    if not titulo or not corpo:
-        print("\n========== DEBUG _parsear_resposta ==========")
-        print(f"Contexto: {contexto}")
-        print(f"Chaves encontradas no JSON: {list(dados_json.keys())}")
-        print(f"Tamanho do texto bruto: {len(texto_limpo)} chars")
-        print("--- TEXTO BRUTO (primeiros 3000 chars) ---")
-        print(texto_limpo[:3000])
-        print("--- FIM DO DEBUG ----------\n")
-        raise ValueError(
-            f"Resposta incompleta do LLM ao gerar {contexto}: "
-            f"faltou 'titulo' ou 'corpo_markdown' (chaves presentes: {list(dados_json.keys())})"
-        )
-
-    return {
-        "titulo": titulo,
-        "excerpt": excerpt,
-        "corpo": corpo,
-    }
+    res.prompt_version = cp.versao_composta(res.prompt_versoes)
+    return res
 
 
-def _extrair_campos_json_tolerante(texto: str) -> dict:
-    def _extrair_string(campo: str, inicio_busca: int = 0):
-        padrao = re.search(
-            rf'"{re.escape(campo)}"\s*:',
-            texto[inicio_busca:],
-            flags=re.IGNORECASE,
-        )
-        if not padrao:
-            raise ValueError(f"campo '{campo}' nao encontrado")
-
-        inicio_valor = inicio_busca + padrao.end()
-        while inicio_valor < len(texto) and texto[inicio_valor].isspace():
-            inicio_valor += 1
-
-        if inicio_valor >= len(texto) or texto[inicio_valor] != '"':
-            raise ValueError(f"campo '{campo}' nao possui valor string")
-
-        inicio_conteudo = inicio_valor + 1
-        campos_seguintes = ("titulo", "resumo", "corpo_markdown")
-        proximo_campo_pos = len(texto)
-
-        for outro_campo in campos_seguintes:
-            if outro_campo == campo:
-                continue
-            resultado = re.search(
-                rf'"\s*,?\s*"{re.escape(outro_campo)}"\s*:',
-                texto[inicio_conteudo:],
-                flags=re.IGNORECASE,
-            )
-            if resultado:
-                pos = inicio_conteudo + resultado.start()
-                if pos < proximo_campo_pos:
-                    proximo_campo_pos = pos
-
-        if campo == "corpo_markdown":
-            fim_conteudo = texto.rfind("}")
-            if fim_conteudo == -1:
-                fim_conteudo = len(texto)
-            trecho = texto[inicio_conteudo:fim_conteudo]
-            trecho = trecho.rstrip()
-            if trecho.endswith('"'):
-                trecho = trecho[:-1]
-            return trecho, fim_conteudo
-
-        trecho = texto[inicio_conteudo:proximo_campo_pos]
-        trecho = trecho.rstrip()
-        if trecho.endswith(","):
-            trecho = trecho[:-1].rstrip()
-        if trecho.endswith('"'):
-            trecho = trecho[:-1]
-        return trecho, proximo_campo_pos
-
-    titulo, pos_titulo = _extrair_string("titulo")
-    resumo, pos_resumo = _extrair_string("resumo", pos_titulo)
-    corpo, _ = _extrair_string("corpo_markdown", pos_resumo)
-
-    titulo = titulo.strip()
-    resumo = resumo.strip()
-    corpo = corpo.strip()
-
-    if not titulo:
-        raise ValueError("titulo vazio")
-    if not corpo:
-        raise ValueError("corpo_markdown vazio")
-
-    return {
-        "titulo": titulo,
-        "resumo": resumo,
-        "corpo_markdown": corpo,
-    }
+def criar_receita(
+    ficha: dict,
+    pauta: dict,
+    *,
+    gerar: GerarFn | None = None,
+    validador: Validador | None = None,
+    categorias_validas: list[str] | None = None,
+    contexto_validacao: dict | None = None,
+    max_reparos: int = MAX_REPAROS,
+) -> ResultadoCriacao:
+    """
+    Cria uma receita a partir da ficha consolidada APROVADA (agents/analista.py).
+    Não consulta a internet. Erros do provedor de LLM (ex.: ModeloNaoAprovado)
+    sobem para o pipeline, que aborta a execução (docs/07 §5).
+    """
+    if ficha.get("status") != "aprovada_para_criacao":
+        raise ValueError("ficha não aprovada: a criação exige status 'aprovada_para_criacao' (PESQUISA-RECEITAS §12)")
+    if ficha.get("pauta", {}).get("subcategoria") not in (None, pauta.get("subcategoria")):
+        raise ValueError("a pauta vale para categoria e subcategoria (03 §10), mas ficha e pauta divergem")
+    contexto = dict(contexto_validacao or {}, pauta=pauta, ficha=ficha)
+    prompt, versoes = cp.montar_criacao("receita", "receita", pauta, ficha, RespostaReceita, categorias_validas)
+    return _laco_criacao(prompt, versoes, lambda t: validar_saida(t, pauta), contexto, gerar or gerar_padrao, validador, max_reparos)
 
 
-# ---------------------------------------------------------------------------
-# Validacao pos-geracao
-# ---------------------------------------------------------------------------
-
-def _validar_links(corpo_markdown: str, urls_permitidas: set[str]) -> str:
-    if not urls_permitidas:
-        return _RE_LINK_MD.sub(lambda match: match.group(1), corpo_markdown)
-
-    def _substituir(match: re.Match) -> str:
-        texto_link = match.group(1)
-        url = match.group(2)
-        if url in urls_permitidas:
-            return match.group(0)
-        return texto_link
-
-    return _RE_LINK_MD.sub(_substituir, corpo_markdown)
-
-
-def _validar_blocos_imagem(corpo_markdown: str) -> str:
-    def _checar(match: re.Match) -> str:
-        conteudo = match.group(1)
-        tem_todos_campos = all(
-            re.search(
-                rf"^\s*{campo}\s*:",
-                conteudo,
-                re.IGNORECASE | re.MULTILINE,
-            )
-            for campo in _CAMPOS_IMAGEM_OBRIGATORIOS
-        )
-        if not tem_todos_campos:
-            return ""
-        return match.group(0)
-
-    return _RE_BLOCO_IMAGEM.sub(_checar, corpo_markdown)
+def validar_saida_dica(texto: str, pauta: dict) -> tuple[RespostaDica | None, list[Falha]]:
+    """SCH-01 a SCH-04 da dica; assunto e subcategoria vêm da pauta (03 §7, 04 §6.7)."""
+    dados, erro = extrair_json(texto)
+    if erro:
+        return None, [Falha("SCH-01", erro)]
+    if not isinstance(dados, dict):
+        return None, [Falha("SCH-01", "a resposta deve ser um objeto JSON")]
+    try:
+        resp = RespostaDica.model_validate(dados)
+    except ValidationError as exc:
+        return None, _falhas_pydantic(exc)
+    falhas = []
+    if resp.assunto != pauta.get("assunto"):
+        falhas.append(Falha("SCH-04", "o assunto vem da pauta e não pode ser alterado", campo="assunto"))
+    if resp.subcategoria != (pauta.get("subcategoria") or None):
+        falhas.append(Falha("SCH-04", "a subcategoria vem da pauta (ou fica vazia) e não pode ser alterada", campo="subcategoria"))
+    return resp, falhas
 
 
-# ---------------------------------------------------------------------------
-# Slug
-# ---------------------------------------------------------------------------
-
-def _gerar_slug(titulo: str) -> str:
-    slug = unicodedata.normalize("NFD", titulo.lower())
-    slug = slug.encode("ascii", "ignore").decode("utf-8")
-    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
-    slug = re.sub(r"\s+", "-", slug.strip())
-    slug = re.sub(r"-+", "-", slug)
-    return slug[:80].strip("-")
+def criar_dica(
+    ficha: dict,
+    pauta: dict,
+    *,
+    gerar: GerarFn | None = None,
+    validador: Validador | None = None,
+    categorias_validas: list[str] | None = None,
+    contexto_validacao: dict | None = None,
+    max_reparos: int = MAX_REPAROS,
+) -> ResultadoCriacao:
+    """
+    Cria uma dica (docs/03 §7) a partir da ficha de pesquisa APROVADA. O assunto
+    (um dos seis de docs/04 §6.7) vem da pauta. Mesmo laço de reparo das receitas.
+    """
+    if ficha.get("status") != "aprovada_para_criacao":
+        raise ValueError("ficha não aprovada: a criação exige status 'aprovada_para_criacao'")
+    if not pauta.get("assunto"):
+        raise ValueError("a pauta de dica precisa do assunto (tip_topic)")
+    contexto = dict(contexto_validacao or {}, pauta=pauta, ficha=ficha)
+    prompt, versoes = cp.montar_criacao("dica", "dica", pauta, ficha, RespostaDica, categorias_validas)
+    return _laco_criacao(prompt, versoes, lambda t: validar_saida_dica(t, pauta), contexto, gerar or gerar_padrao, validador, max_reparos)

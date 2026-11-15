@@ -1,115 +1,65 @@
 """
-imagem_service.py — Serviço unificado de busca, processamento e proveniência de imagens
-para o agente do Chocolícia.
+imagem_service.py — Capa da receita (Etapa 6 do fluxo: "SEO e visual"), docs/01 §8.2.
 
-Integra 4 bancos de imagens reais com controle independente:
-    1. Pixabay (fonte prioritária com chave)
-    2. Pexels (fonte complementar de alta resolução com chave)
-    3. Openverse (fonte complementar de licença aberta Creative Commons)
-    4. Wikimedia Commons (fonte complementar enciclopédica, técnicas e receitas)
+Entrada: o conteúdo validado (termos_busca_imagem, prompt_imagem, titulo,
+subcategoria). Saída: ResultadoImagem com o objeto `cover` do payload do site
+(docs/06 §7.1 modo "stock"; §7.2 modo "generate" em último caso).
 
-Preserva integralmente:
-- A compatibilidade com buscar_imagem_capa(titulo, tema, categoria)
-- A compatibilidade com buscar_imagem_noticia(...)
-- O fluxo de retorno de dicionários com imagem_url, imagem_fonte, imagem_autor, etc.
-- O novo contrato estruturado de receitas e artigos (mode, provider, sourceImageUrl, stored_image_url)
+O que mudou em relação à versão do DigitalTech:
+- sem armazenamento local, sem SQLite e sem download para disco: a proveniência
+  segue no payload e quem baixa e trata a imagem é o site;
+- removidas buscar_imagem_capa e buscar_imagem_noticia (raspagem de og:image
+  de notícias fica fora do escopo; não há notícias, docs/01 D-16);
+- os termos vêm da receita (termos_busca_imagem), não do título; sem termo de
+  reserva genérico, porque ele traria imagem do prato errado;
+- filtro de licença, largura mínima, deduplicação e verificação por visão
+  (services/image_providers/selector.py).
+
+Pendências por interface: VerificadorVisao e ImagensUsadas persistente.
 """
 
-import os
-import re
-from typing import Optional, Dict, Any, List
+from __future__ import annotations
+
+from typing import Optional
 
 from services.image_providers import (
     ImageSelector,
-    buscar_e_armazenar_imagem as _buscar_e_armazenar,
-    PixabayProvider,
-    PexelsProvider,
-    OpenverseProvider,
-    WikimediaProvider,
+    ImagensUsadas,
+    ImagensUsadasMemoria,
+    ResultadoImagem,
+    SemVisao,
+    VerificadorVisao,
 )
 
-_selector = ImageSelector()
 
-
-def buscar_imagem_receita(
-    titulo: str,
-    categoria: str = "",
-    subcategoria: str = "",
-    tags: Optional[List[str]] = None,
-    baixar_localmente: bool = True,
-) -> Optional[Dict[str, Any]]:
+def escolher_capa(
+    conteudo: dict,
+    *,
+    usadas: Optional[ImagensUsadas] = None,
+    visao: Optional[VerificadorVisao] = None,
+    selector: Optional[ImageSelector] = None,
+    geracao_permitida: bool = True,
+    **kwargs,
+) -> ResultadoImagem:
     """
-    Busca de imagem para receitas no Chocolícia.
-    Consulta os 4 bancos de imagens (Pixabay, Pexels, Openverse, Wikimedia)
-    respeitando configurações de ativação, validação de licença comercial,
-    proporção horizontal e resolução de capa.
+    `geracao_permitida` vem do teto diário de imagens por IA (docs/06 §12), a ser
+    aplicado pelo pipeline (Passo 9). Sem `visao`, a verificação IMG-04 fica
+    PENDENTE e a escolha cai em "generate" (falha fechada).
     """
-    return _selector.buscar_e_armazenar_imagem(
-        titulo=titulo,
-        categoria=categoria,
-        subcategoria=subcategoria,
-        ingredientes=tags,
-        min_width=1280,
-        baixar=baixar_localmente,
+    termos = conteudo.get("termos_busca_imagem") or []
+    prompt = conteudo.get("prompt_imagem") or ""
+    if not termos or not prompt:
+        raise ValueError("conteúdo sem termos_busca_imagem ou prompt_imagem")
+    if conteudo.get("subcategoria"):
+        esperado = f'{conteudo.get("titulo", "")} (subcategoria: {conteudo["subcategoria"]})'
+    else:  # dica sem subcategoria (docs/04 §6.7)
+        esperado = f'{conteudo.get("titulo", "")} (assunto: {conteudo.get("assunto", "")})'
+    return (selector or ImageSelector()).selecionar(
+        termos=termos,
+        esperado=esperado,
+        prompt_imagem=prompt,
+        usadas=usadas if usadas is not None else ImagensUsadasMemoria(),
+        visao=visao if visao is not None else SemVisao(),
+        geracao_permitida=geracao_permitida,
+        **kwargs,
     )
-
-
-def buscar_imagem_capa(
-    titulo: str = "",
-    tema: str | None = None,
-    categoria: str | None = None,
-) -> Optional[Dict[str, Any]]:
-    """
-    Função de compatibilidade consumida por pipeline/gerar_artigos.py e agents/seo.py.
-    Preserva a assinatura e o formato de dicionário esperado pelo código existente.
-    """
-    res = buscar_imagem_receita(
-        titulo=titulo,
-        categoria=categoria or "",
-        subcategoria=tema or "",
-        baixar_localmente=True,
-    )
-
-    if res:
-        url_imagem = res.get("stored_image_url") or res.get("sourceImageUrl")
-        return {
-            "imagem_url": url_imagem,
-            "imagem_fonte": f"{res.get('provider', '').capitalize()} (banco de imagens)",
-            "imagem_query": res.get("search_query", titulo),
-            "imagem_alt": res.get("coverImageAlt", f"{titulo} servido"),
-            "imagem_autor": res.get("author", "Fotógrafo"),
-            "imagem_link": res.get("sourcePageUrl", ""),
-            "cover": res,
-        }
-    return None
-
-
-def buscar_imagem_noticia(
-    titulo: str = "",
-    tema: str | None = None,
-    categoria: str | None = None,
-    url_fonte: str | None = None,
-) -> Optional[Dict[str, Any]]:
-    """
-    Função de compatibilidade para notícias, tentando primeiro og:image e depois os bancos.
-    """
-    if url_fonte:
-        try:
-            import httpx
-            resp = httpx.get(url_fonte, timeout=8, follow_redirects=True)
-            if resp.status_code == 200:
-                match = re.search(r"<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']", resp.text, re.IGNORECASE)
-                if match:
-                    img_url = match.group(1)
-                    return {
-                        "imagem_url": img_url,
-                        "imagem_fonte": "RSS (og:image)",
-                        "imagem_query": url_fonte,
-                        "imagem_alt": "Imagem da notícia original",
-                        "imagem_autor": "Fonte original",
-                        "imagem_link": url_fonte,
-                    }
-        except Exception:
-            pass
-
-    return buscar_imagem_capa(titulo=titulo, tema=tema, categoria=categoria)

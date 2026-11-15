@@ -2,19 +2,24 @@
 services/image_providers/pixabay.py — Adaptador para o banco de imagens Pixabay.
 """
 
+import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
 import httpx
 
-from services.image_providers.base import ImageProvider, StandardImageResult
+from services.image_providers.base import ImageProvider, StandardImageResult, user_agent
+
+log = logging.getLogger(__name__)
 
 
 class PixabayProvider(ImageProvider):
     """Provedor de imagens Pixabay (fonte prioritária)."""
 
     ENDPOINT = "https://pixabay.com/api/"
-    CACHE_TTL_SECS = 24 * 3600  # 24 horas obrigatório pela política do Pixabay
+    CACHE_TTL_SECS = 24 * 3600  # 24 horas, conforme a política do Pixabay
+    IMAGE_HOSTS = ("pixabay.com", "cdn.pixabay.com")  # NÃO VERIFICADO (ver base.py)
 
     def __init__(self):
         enabled_env = os.getenv("PIXABAY_ENABLED", "true").lower() in ("true", "1", "yes")
@@ -26,28 +31,18 @@ class PixabayProvider(ImageProvider):
     def is_available(self) -> bool:
         return self.enabled and bool(self.api_key)
 
-    def search(
-        self,
-        query: str,
-        limit: int = 10,
-        min_width: int = 1280,
-        lang: str = "pt",
-        **kwargs
-    ) -> List[StandardImageResult]:
+    def search(self, query: str, limit: int = 10, min_width: int = 1280, lang: str = "pt", **kwargs) -> List[StandardImageResult]:
         if not self.is_available():
             return []
-
         query_limpa = query.strip()[:100]
         if not query_limpa:
             return []
 
         cache_key = f"{query_limpa.lower()}|{lang}|{min_width}"
         agora = time.time()
-
-        if cache_key in self._cache:
-            cache_entry = self._cache[cache_key]
-            if agora - cache_entry["time"] < self.CACHE_TTL_SECS:
-                return cache_entry["results"]
+        entrada = self._cache.get(cache_key)
+        if entrada and agora - entrada["time"] < self.CACHE_TTL_SECS:
+            return entrada["results"]
 
         params = {
             "key": self.api_key,
@@ -62,72 +57,53 @@ class PixabayProvider(ImageProvider):
         }
         if min_width > 0:
             params["min_width"] = min_width
-
-        headers = {
-            "User-Agent": "ChocoliciaAgent/1.0 (+https://chocolicia.com)",
-            "Accept": "application/json",
-        }
+        headers = {"User-Agent": user_agent(), "Accept": "application/json"}
 
         try:
             resp = httpx.get(self.ENDPOINT, params=params, headers=headers, timeout=self.timeout)
-            if resp.status_code == 200:
-                dados = resp.json()
-                hits = dados.get("hits", [])
-                
-                # Se não houver hits em português e lang era pt, tenta em inglês
-                if not hits and lang == "pt":
-                    params["lang"] = "en"
-                    resp_en = httpx.get(self.ENDPOINT, params=params, headers=headers, timeout=self.timeout)
-                    if resp_en.status_code == 200:
-                        hits = resp_en.json().get("hits", [])
-
-                results: List[StandardImageResult] = []
-                for hit in hits:
-                    img_url = (
-                        hit.get("largeImageURL")
-                        or hit.get("fullHDURL")
-                        or hit.get("imageURL")
-                        or hit.get("webformatURL")
-                    )
-                    if not img_url:
-                        continue
-
-                    user = hit.get("user", "Pixabay Contributor")
-                    user_id = hit.get("user_id")
-                    user_url = f"https://pixabay.com/users/{user}-{user_id}/" if user_id else hit.get("pageURL")
-                    tags_list = [t.strip() for t in hit.get("tags", "").split(",") if t.strip()]
-
-                    item = StandardImageResult(
-                        provider="pixabay",
-                        provider_image_id=str(hit.get("id")),
-                        title=hit.get("tags", query_limpa),
-                        original_image_url=img_url,
-                        original_page_url=hit.get("pageURL", "https://pixabay.com"),
-                        photographer=user,
-                        photographer_url=user_url,
-                        license="Pixabay Content License",
-                        license_url="https://pixabay.com/service/terms/",
-                        attribution_text=f"Foto: {user} via Pixabay",
-                        width=hit.get("imageWidth", 0),
-                        height=hit.get("imageHeight", 0),
-                        is_commercial_friendly=True,
-                        tags=tags_list,
-                        search_query=query_limpa,
-                        raw_data=hit,
-                    )
-                    results.append(item)
-
-                self._cache[cache_key] = {"time": agora, "results": results}
-                return results
-
-            elif resp.status_code == 429:
-                print(f"[Pixabay] Erro 429: limite de requisições excedido.")
+            if resp.status_code == 429:
+                log.warning("Pixabay: limite de requisições excedido (429)")
                 return []
-            else:
-                print(f"[Pixabay] Erro HTTP {resp.status_code}")
+            if resp.status_code != 200:
+                log.warning("Pixabay: HTTP %s", resp.status_code)
                 return []
+            hits = resp.json().get("hits", [])
+            if not hits and lang == "pt":
+                params["lang"] = "en"
+                resp_en = httpx.get(self.ENDPOINT, params=params, headers=headers, timeout=self.timeout)
+                if resp_en.status_code == 200:
+                    hits = resp_en.json().get("hits", [])
 
-        except Exception as e:
-            print(f"[Pixabay] Falha ao pesquisar '{query}': {e}")
+            results: List[StandardImageResult] = []
+            for hit in hits:
+                img_url = (
+                    hit.get("largeImageURL") or hit.get("fullHDURL")
+                    or hit.get("imageURL") or hit.get("webformatURL")
+                )
+                if not img_url:
+                    continue
+                user = hit.get("user") or ""
+                user_id = hit.get("user_id")
+                user_url = f"https://pixabay.com/users/{user}-{user_id}/" if (user and user_id) else hit.get("pageURL")
+                results.append(StandardImageResult(
+                    provider="pixabay",
+                    provider_image_id=str(hit.get("id")),
+                    title=hit.get("tags", query_limpa),
+                    original_image_url=img_url,
+                    original_page_url=hit.get("pageURL", ""),
+                    photographer=user,
+                    photographer_url=user_url,
+                    license="Pixabay Content License",
+                    license_url="https://pixabay.com/service/terms/",
+                    attribution_text=f"Foto: {user} via Pixabay" if user else "",
+                    width=hit.get("imageWidth", 0) or 0,
+                    height=hit.get("imageHeight", 0) or 0,
+                    tags=[t.strip() for t in hit.get("tags", "").split(",") if t.strip()],
+                    search_query=query_limpa,
+                    raw_data=hit,
+                ))
+            self._cache[cache_key] = {"time": agora, "results": results}
+            return results
+        except Exception as exc:  # não registrar a mensagem: pode conter a URL com a chave
+            log.warning("Pixabay: falha na busca (%s)", type(exc).__name__)
             return []
-

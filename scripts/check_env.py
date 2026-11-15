@@ -11,7 +11,6 @@ keys = [
     "WIKIMEDIA_ENABLED",
     "PIXABAY_ENABLED",
     "PEXELS_ENABLED",
-    "IMAGE_STORAGE_DIR",
 ]
 for k in keys:
     v = os.getenv(k, "")

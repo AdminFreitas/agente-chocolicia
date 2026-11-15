@@ -1,19 +1,28 @@
 """
 services/image_providers/wikimedia.py — Adaptador para o Wikimedia Commons.
+
+Mudança de licença: antes, licença ausente virava "CC-BY-SA" por padrão e só "NC"
+era recusada. Agora a licença vem como o Commons informa (ou vazia) e a decisão é
+de services/image_providers/licencas.py (recusa NC, ND, SA e desconhecida).
 """
 
+import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import List
+
 import httpx
 
-from services.image_providers.base import ImageProvider, StandardImageResult
+from services.image_providers.base import ImageProvider, StandardImageResult, user_agent
+
+log = logging.getLogger(__name__)
 
 
 class WikimediaProvider(ImageProvider):
-    """Provedor de imagens Wikimedia Commons (conteúdos educativos, matérias, técnicas e receitas)."""
+    """Provedor de imagens Wikimedia Commons."""
 
     ENDPOINT = "https://commons.wikimedia.org/w/api.php"
+    IMAGE_HOSTS = ("upload.wikimedia.org",)  # NÃO VERIFICADO (ver base.py)
 
     def __init__(self):
         enabled_env = os.getenv("WIKIMEDIA_ENABLED", "true").lower() in ("true", "1", "yes")
@@ -23,108 +32,71 @@ class WikimediaProvider(ImageProvider):
     def is_available(self) -> bool:
         return self.enabled
 
-    def _limpar_html(self, raw_html: str) -> str:
+    @staticmethod
+    def _limpar_html(raw_html: str) -> str:
         if not raw_html:
             return ""
-        limpo = re.sub(r"<[^>]+>", "", raw_html)
-        return " ".join(limpo.split())
+        return " ".join(re.sub(r"<[^>]+>", "", raw_html).split())
 
-    def search(
-        self,
-        query: str,
-        limit: int = 10,
-        min_width: int = 1280,
-        lang: str = "pt",
-        **kwargs
-    ) -> List[StandardImageResult]:
+    def search(self, query: str, limit: int = 10, min_width: int = 1280, lang: str = "pt", **kwargs) -> List[StandardImageResult]:
         if not self.is_available():
             return []
-
         query_limpa = query.strip()
         if not query_limpa:
             return []
 
-        headers = {
-            "User-Agent": "ChocoliciaBot/1.0 (contact@chocolicia.com)",
-            "Accept": "application/json",
-        }
-
+        headers = {"User-Agent": user_agent(), "Accept": "application/json"}
         params = {
             "action": "query",
             "generator": "search",
             "gsrsearch": f"{query_limpa} filetype:bitmap",
-            "gsrnamespace": 6,  # 6 = Namespace de arquivos de mídia
+            "gsrnamespace": 6,
             "gsrlimit": min(max(limit, 5), 25),
             "prop": "imageinfo",
             "iiprop": "url|size|extmetadata",
             "format": "json",
         }
-
         try:
             resp = httpx.get(self.ENDPOINT, params=params, headers=headers, timeout=self.timeout)
             if resp.status_code != 200:
-                print(f"[Wikimedia] Erro HTTP {resp.status_code}")
+                log.warning("Wikimedia: HTTP %s", resp.status_code)
                 return []
+            paginas = resp.json().get("query", {}).get("pages", {})
 
-            dados = resp.json()
-            pages = dados.get("query", {}).get("pages", {})
             results: List[StandardImageResult] = []
-
-            for page_id, page_data in pages.items():
-                title = page_data.get("title", "").replace("File:", "")
-                image_info_list = page_data.get("imageinfo", [])
-                if not image_info_list:
+            for page_id, page in paginas.items():
+                titulo = page.get("title", "").replace("File:", "")
+                infos = page.get("imageinfo", [])
+                if not infos:
                     continue
-
-                ii = image_info_list[0]
+                ii = infos[0]
                 img_url = ii.get("url")
                 if not img_url:
                     continue
-
-                w = ii.get("width", 0)
-                h = ii.get("height", 0)
-                if min_width > 0 and w > 0 and w < min_width:
+                w, h = ii.get("width", 0) or 0, ii.get("height", 0) or 0
+                if min_width > 0 and 0 < w < min_width:
                     continue
-
                 ext = ii.get("extmetadata", {})
-                artist_raw = ext.get("Artist", {}).get("value", "")
-                artist = self._limpar_html(artist_raw) or "Autor Wikimedia"
-                
-                license_short = ext.get("LicenseShortName", {}).get("value", "CC-BY-SA")
-                license_url = ext.get("LicenseUrl", {}).get("value", "https://creativecommons.org/")
-
-                # Validação de licença: rejeita licenças NC (não comerciais)
-                lic_lower = license_short.lower()
-                if "nc" in lic_lower:
-                    continue
-
-                page_url = ii.get("descriptionurl") or f"https://commons.wikimedia.org/wiki/{page_data.get('title')}"
-                desc_raw = ext.get("ImageDescription", {}).get("value", "")
-                desc = self._limpar_html(desc_raw) or title
-
-                item = StandardImageResult(
+                autor = self._limpar_html(ext.get("Artist", {}).get("value", ""))
+                lic = ext.get("LicenseShortName", {}).get("value", "")
+                desc = self._limpar_html(ext.get("ImageDescription", {}).get("value", "")) or titulo
+                results.append(StandardImageResult(
                     provider="wikimedia",
                     provider_image_id=str(page_id),
                     title=desc[:160],
                     original_image_url=img_url,
-                    original_page_url=page_url,
-                    photographer=artist[:100],
+                    original_page_url=ii.get("descriptionurl") or f"https://commons.wikimedia.org/wiki/{page.get('title')}",
+                    photographer=autor[:100],
                     photographer_url=None,
-                    license=license_short,
-                    license_url=license_url,
-                    attribution_text=f"Foto: {artist[:60]} via Wikimedia Commons ({license_short})",
+                    license=lic,
+                    license_url=ext.get("LicenseUrl", {}).get("value"),
+                    attribution_text=f"Foto: {autor[:60]} via Wikimedia Commons ({lic})" if autor and lic else "",
                     width=w,
                     height=h,
-                    is_commercial_friendly=True,
-                    tags=[],
                     search_query=query_limpa,
-                    raw_data=page_data,
-                )
-                results.append(item)
-
+                    raw_data=page,
+                ))
             return results
-
-        except Exception as e:
-            print(f"[Wikimedia] Falha ao pesquisar '{query}': {e}")
+        except Exception as exc:
+            log.warning("Wikimedia: falha na busca (%s)", type(exc).__name__)
             return []
-
