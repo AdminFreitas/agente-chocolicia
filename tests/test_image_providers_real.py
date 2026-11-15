@@ -13,7 +13,7 @@ from services.image_providers import (
     OpenverseProvider, PexelsProvider, PixabayProvider, WikimediaProvider, classificar_licenca,
 )
 
-pytestmark = pytest.mark.real
+pytestmark = [pytest.mark.real, pytest.mark.integration]
 
 TERMOS = ["chocolate truffles plate", "brigadeiro bowl", "chocolate cake slice"]
 
