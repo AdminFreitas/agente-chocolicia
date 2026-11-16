@@ -5,7 +5,7 @@ import time
 import unicodedata
 from datetime import date
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import httpx
 
@@ -76,7 +76,34 @@ gerar_slug = _gerar_slug
 def _modelos_aprovados(tarefa: str) -> list[dict]:
     with _CONFIG_PATH.open("r", encoding="utf-8") as arquivo:
         config = json.load(arquivo)
-    return config.get(tarefa, [])
+    modelos = config.get(tarefa, [])
+    if not isinstance(modelos, list):
+        raise ModeloNaoAprovado(f"Configuração inválida para a tarefa '{tarefa}'")
+    return modelos
+
+
+def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list[dict]:
+    modelos = _modelos_aprovados(tarefa)
+    if not modelos:
+        raise ModeloNaoAprovado(f"Nenhum modelo aprovado para a tarefa '{tarefa}'")
+    elegiveis = []
+    for item in modelos:
+        if not isinstance(item, dict):
+            raise ModeloNaoAprovado(f"Entrada inválida de modelo na tarefa '{tarefa}'")
+        provedor = item.get("provedor")
+        if not isinstance(provedor, str) or not provedor.strip():
+            raise ModeloNaoAprovado(f"Modelo sem provedor na tarefa '{tarefa}'")
+        familia = item.get("familia", "")
+        if familia_excluida is not None and familia == familia_excluida:
+            continue
+        if familia_excluida is not None and not familia:
+            continue
+        elegiveis.append(item)
+    if not elegiveis:
+        raise ModeloNaoAprovado(
+            f"Nenhum modelo aprovado de família diferente para a tarefa '{tarefa}'"
+        )
+    return elegiveis
 
 
 def _chave_provedor(provedor: str) -> str | None:
@@ -141,28 +168,36 @@ def _contabilizar(prompt: str, texto: str) -> None:
     CONTADORES["tokens"] += len((prompt + texto).split())
 
 
-def gerar_texto(tarefa: str, prompt: str | None = None, tentativas_por_provedor: int = 2) -> str:
-    if prompt is None:
-        prompt = tarefa
-        tarefa = "criacao"
-    modelos = _modelos_aprovados(tarefa)
-    if not modelos:
-        raise ModeloNaoAprovado(f"Nenhum modelo aprovado para a tarefa '{tarefa}'")
-
+def _gerar_com_metadados(
+    tarefa: str,
+    prompt: str,
+    tentativas_por_provedor: int = 2,
+    familia_excluida: str | None = None,
+) -> dict[str, Any]:
+    modelos = _modelos_elegiveis(tarefa, familia_excluida)
     erros = []
+    tentativas = 0
     for item in modelos:
         provedor = item.get("provedor", "")
         if not _chave_provedor(provedor):
             erros.append(f"{provedor}: chave nao configurada")
             continue
-        for _ in range(tentativas_por_provedor):
+        for _ in range(max(1, tentativas_por_provedor)):
+            tentativas += 1
             inicio = time.monotonic()
             try:
                 CONTADORES["requisicoes"] += 1
                 texto = _chamar_provedor(item, prompt)
                 _contabilizar(prompt, texto)
                 if texto and texto.strip():
-                    return texto.strip()
+                    return {
+                        "texto": texto.strip(),
+                        "provedor": provedor,
+                        "modelo": _modelo_resolvido(item),
+                        "familia": item.get("familia", ""),
+                        "tentativas": tentativas,
+                        "tempo_ms": int((time.monotonic() - inicio) * 1000),
+                    }
                 raise RuntimeError("Resposta vazia")
             except Exception as exc:
                 erros.append(f"{provedor}: {exc}")
@@ -171,18 +206,30 @@ def gerar_texto(tarefa: str, prompt: str | None = None, tentativas_por_provedor:
     raise RuntimeError(f"Falha nos modelos aprovados: {'; '.join(erros)}")
 
 
-def gerar_texto_com_metadados(tarefa: str, prompt: str | None = None, tentativas_por_provedor: int = 2) -> dict:
+def gerar_texto(
+    tarefa: str,
+    prompt: str | None = None,
+    tentativas_por_provedor: int = 2,
+    *,
+    familia_excluida: str | None = None,
+) -> str:
     if prompt is None:
         prompt = tarefa
         tarefa = "criacao"
-    texto = gerar_texto(tarefa, prompt, tentativas_por_provedor)
-    modelo_usado = _modelos_aprovados(tarefa)[0] if _modelos_aprovados(tarefa) else {}
-    return {
-        "texto": texto,
-        "provedor": modelo_usado.get("provedor", ""),
-        "modelo": _modelo_resolvido(modelo_usado) if modelo_usado else "",
-        "tempo_ms": 0,
-    }
+    return _gerar_com_metadados(tarefa, prompt, tentativas_por_provedor, familia_excluida)["texto"]
+
+
+def gerar_texto_com_metadados(
+    tarefa: str,
+    prompt: str | None = None,
+    tentativas_por_provedor: int = 2,
+    *,
+    familia_excluida: str | None = None,
+) -> dict:
+    if prompt is None:
+        prompt = tarefa
+        tarefa = "criacao"
+    return _gerar_com_metadados(tarefa, prompt, tentativas_por_provedor, familia_excluida)
 
 
 def gerar_artigo(tema: str, categoria: str = "Tecnologia", tentativas_por_provedor: int = 2) -> dict:
