@@ -1,95 +1,42 @@
-"""
-Ponto de entrada para automação do agente.
-
-Gera um artigo por execução e abre uma sessão curta do banco apenas
-para ler os títulos recentes usados como contexto de sugestão de tema.
-"""
+"""CLI segura do agente Chocolícia, sem leitura de `.env` no import."""
+from __future__ import annotations
 
 import argparse
-import random
+import json
+import os
 import sys
-from datetime import datetime
 
-PUBLICAR_IMEDIATAMENTE = True
-
-CATEGORIAS_ARTIGOS = [
-    "Inteligência Artificial",
-    "Programação",
-    "Banco de Dados",
-    "Cibersegurança",
-    "Cloud e DevOps",
-    "Desenvolvimento Web",
-    "Engenharia de Software",
-    "Hardware",
-    "Open Source",
-    "Carreira",
-]
+from pipeline.gerar_receitas import executar_modo_teste
 
 
-def _log(mensagem: str) -> None:
-    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{agora}] {mensagem}", flush=True)
+def construir_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Executa o agente Chocolícia")
+    grupo = p.add_mutually_exclusive_group(required=True)
+    grupo.add_argument("--receita", action="store_true")
+    grupo.add_argument("--dica", action="store_true")
+    grupo.add_argument("--artigo", action="store_true", help="legado; removido na refatoração")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--target", choices=("preview", "producao"), default="preview")
+    p.add_argument("--contrato", choices=("v1", "site-atual"), default="v1")
+    p.add_argument("--fase", type=int, choices=(0, 1, 2, 3), default=0)
+    p.add_argument("--assunto", default="automatico")
+    return p
 
 
-def _buscar_temas_recentes(limite: int = 30) -> list[str]:
-    """
-    Busca os títulos mais recentes no banco para servir de contexto ao
-    sugerir_tema() (evita repetir assunto). Protegido por try/except
-    porque a assinatura exata de ArtigoRepository.listar_todos() ainda
-    não foi confirmada — se ela não aceitar 'limite', ou qualquer outra
-    coisa falhar aqui, a geração do artigo não deve travar por causa
-    disso, só perde o contexto de "não repita esses temas".
-    """
-    from config.database import SessionLocal
-    from repositories.artigo_repository import ArtigoRepository
-
-    db = SessionLocal()
-    try:
-        artigos = ArtigoRepository(db).listar_todos(limite=limite)
-        return [a.titulo for a in artigos]
-    except TypeError as e:
-        _log(
-            f"AVISO: listar_todos() não aceitou 'limite' ({e}) — "
-            "seguindo sem temas recentes"
-        )
-        return []
-    except Exception as e:
-        _log(
-            f"AVISO: falha ao buscar temas recentes ({e}) — "
-            "seguindo sem temas recentes"
-        )
-        return []
-    finally:
-        db.close()
-
-
-def rodar_artigo(publicar: bool | None = None) -> bool:
-    """
-    Gera um artigo evergreen. Retorna True em sucesso, False em falha
-    real — nunca lança exceção, quem chama decide o que fazer com o
-    resultado (ex.: exit code pro cron/GitHub Actions perceber falha).
-    """
-    _log("FALHA: --artigo foi removido na refatoração; use --receita no prompt 3")
-    return False
+def main(argv: list[str] | None = None) -> int:
+    args = construir_parser().parse_args(argv)
+    if args.artigo:
+        print("FALHA: --artigo foi removido na refatoração; use --receita no prompt 3")
+        return 1
+    if os.environ.get("AGENT_ENABLED", "false").lower() != "true":
+        print(json.dumps({"estado": "desabilitado", "motivo": "AGENT_ENABLED=false"}, ensure_ascii=False))
+        return 0
+    resultado = executar_modo_teste(
+        "receita" if args.receita else "dica", target=args.target, fase=args.fase,
+    )
+    print(json.dumps({**resultado.__dict__, "contrato": args.contrato, "assunto": args.assunto}, ensure_ascii=False))
+    return 0
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Gera um artigo — para uso via cron."
-    )
-    parser.add_argument(
-        "--artigo",
-        action="store_true",
-        help="Gera um artigo evergreen",
-    )
-    args = parser.parse_args()
-
-    if not args.artigo:
-        parser.error("Use --artigo.")
-
-    ok_artigo = True
-
-    if args.artigo:
-        ok_artigo = rodar_artigo()
-
-    sys.exit(0 if ok_artigo else 1)
+    sys.exit(main())
