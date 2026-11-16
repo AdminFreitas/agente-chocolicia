@@ -1,103 +1,77 @@
-"""Fixtures compartilhadas para criação e integração de receitas."""
-
-from __future__ import annotations
-
+"""Fixtures da criação. Valores ILUSTRATIVOS, não são dados reais de fonte alguma."""
 import copy
 import json
-from typing import Any
 
+from helpers_pesquisa import PAUTA, analista_ok, fichas_aprovaveis
 from services.llm_cliente import RespostaLLM
 
-
-PAUTA_RECEITA = {
-    "tema": "Brigadeiro de colher cremoso",
-    "categoria": "doces-e-sobremesas",
-    "subcategoria": "brigadeiros-e-docinhos",
-    "topic_slug": "brigadeiro-de-colher-cremoso",
-    "ocasiao": ["festas"],
-}
+PAUTA_RECEITA = dict(copy.deepcopy(PAUTA), tipo_conteudo="receita")
 
 
-def ficha_aprovada(**mudancas: Any) -> dict:
-    ficha = {
-        "status": "aprovada_para_criacao",
-        "pauta": {"tema": PAUTA_RECEITA["tema"], "subcategoria": PAUTA_RECEITA["subcategoria"]},
-        "fontes_consultadas": 3,
-        "fontes_tecnicas": 0,
-        "envolve_seguranca": False,
-        "etiquetas_dieta": [],
-        "tecnica_flags": [],
-        "referencias_registro": [
-            {"dominio": "panelinha.com.br", "url": "https://panelinha.com.br/x", "acessado_em": "2026-11-12"},
-            {"dominio": "receitas.globo.com", "url": "https://receitas.globo.com/x", "acessado_em": "2026-11-12"},
-            {"dominio": "tudogostoso.com.br", "url": "https://tudogostoso.com.br/x", "acessado_em": "2026-11-12"},
-        ],
-    }
-    ficha.update(mudancas)
-    return copy.deepcopy(ficha)
+def ficha_aprovada():
+    f = analista_ok().consolidar(copy.deepcopy(PAUTA), fichas_aprovaveis())
+    assert f["status"] == "aprovada_para_criacao"
+    return f
 
 
-def receita_valida(**mudancas: Any) -> dict:
-    receita = {
-        "titulo": "Brigadeiro de colher cremoso",
-        "descricao_curta": "Um brigadeiro cremoso, simples e feito para comer de colher.",
-        "introducao": "",
+def receita_valida(**mudancas):
+    d = {
+        "titulo": "Brigadeiro de colher cremoso com chocolate",
+        "descricao_curta": "Brigadeiro de colher macio e brilhante, feito com leite condensado e chocolate em pó, com ponto fácil.",
+        "introducao": "O brigadeiro de colher combina leite condensado e chocolate em uma textura cremosa.",
         "subcategoria": "brigadeiros-e-docinhos",
-        "tempo_preparo_min": 5,
-        "tempo_cozimento_min": 15,
-        "tempo_descanso_min": None,
-        "rendimento_porcoes": 6,
-        "rendimento_texto": "6 porções",
-        "ingredientes": [
-            {
-                "nome": "leite condensado",
-                "quantidade": 395,
-                "unidade": "g",
-                "observacao": None,
-            },
-            {
-                "nome": "chocolate em pó",
-                "quantidade": "42",
-                "unidade": "g",
-                "observacao": None,
-            },
-        ],
+        "tempo_preparo_min": 10, "tempo_cozimento_min": 15, "tempo_descanso_min": None,
+        "rendimento_porcoes": 8, "rendimento_texto": "8 porções",
+        "ingredientes": [{"nome": "Brigadeiro", "itens": [
+            {"nome": "leite condensado", "quantidade": 395, "unidade": "g", "observacao": "1 lata"},
+            {"nome": "chocolate em pó", "quantidade": "42", "unidade": "g"},
+            {"nome": "manteiga", "quantidade": "15", "unidade": "g"}]}],
         "modo_preparo": [
-            {"titulo": "Misture", "instrucao": "Coloque os ingredientes em uma panela e misture antes de aquecer."},
-            {"titulo": "Cozinhe", "instrucao": "Cozinhe em fogo baixo, mexendo sempre, por cerca de 15 minutos."},
-            {"titulo": "Desligue", "instrucao": "Desligue quando a mistura estiver cremosa e começar a soltar do fundo."},
-            {"titulo": "Sirva", "instrucao": "Transfira para potes e sirva morno ou frio."},
-        ],
-        "dica_extra": "",
-        "perguntas_frequentes": [],
-        "tags": ["brigadeiro", "chocolate", "sobremesa"],
-        "termos_busca_imagem": ["brigadeiro bowl", "chocolate dessert", "brigadeiro spoon"],
-        "prompt_imagem": "Brigadeiro de colher cremoso em uma tigela, fotografia culinária",
-        "texto_alt_imagem": "Brigadeiro de colher cremoso servido em uma tigela",
-        "temas_relacionados": ["doces de festa", "sobremesas de chocolate"],
-        "alertas_internos": [],
+            {"titulo": "Misturar", "instrucao": "Misture o leite condensado, o chocolate e a manteiga em uma panela."},
+            {"titulo": "Cozinhar", "instrucao": "Leve ao fogo baixo e mexa sem parar até soltar do fundo, por cerca de 15 minutos."},
+            {"titulo": "Esfriar", "instrucao": "Transfira para um recipiente e deixe amornar."},
+            {"titulo": "Servir", "instrucao": "Sirva em copinhos."}],
+        "dica_extra": "", "perguntas_frequentes": [], "tags": ["chocolate", "brigadeiro", "festa", "doce de colher"],
+        "termos_busca_imagem": ["brigadeiro bowl", "chocolate pudding spoon", "chocolate dessert"],
+        "prompt_imagem": "Brigadeiro de colher cremoso em uma tigela de cerâmica, vista de cima, luz suave",
+        "texto_alt_imagem": "Tigela com brigadeiro de colher cremoso e brilhante",
+        "temas_relacionados": ["ponto do brigadeiro", "brigadeiro branco"], "alertas_internos": [],
     }
-    receita.update(mudancas)
-    return copy.deepcopy(receita)
+    d.update(copy.deepcopy(mudancas))
+    return d
+
+
+def js(d):
+    return json.dumps(d, ensure_ascii=False)
 
 
 class GerarFalso:
-    def __init__(self, respostas, *, familia="familia-a"):
+    """
+    Dublê de llm compatível com GerarFn. Registra (tarefa, prompt, familia_excluida).
+
+    Cada item da fila `respostas` pode ser:
+      - str            -> vira RespostaLLM (use texto inválido para simular JSON inválido,
+                          e um segundo item válido para simular o reparo);
+      - RespostaLLM    -> devolvida como está;
+      - Exception      -> instância ou classe: levantada (falha simulada);
+      - BaseException que não seja Exception (KeyboardInterrupt, SystemExit...) -> também
+        levantada, e propaga sem ser engolida: o dublê não captura nada.
+    """
+
+    def __init__(self, respostas, familia="familia-a", provedor="p", modelo="m"):
         self.respostas = list(respostas)
-        self.familia = familia
         self.chamadas = []
+        self.familia, self.provedor, self.modelo = familia, provedor, modelo
 
     def __call__(self, tarefa, prompt, *, familia_excluida=None):
         self.chamadas.append((tarefa, prompt, familia_excluida))
         if not self.respostas:
-            raise RuntimeError("GerarFalso sem respostas restantes")
-        resposta = self.respostas.pop(0)
-        if isinstance(resposta, BaseException):
-            raise resposta
-        if isinstance(resposta, RespostaLLM):
-            return resposta
-        return RespostaLLM(str(resposta), "p", "m", self.familia)
-
-
-def js(valor: Any) -> str:
-    return json.dumps(valor, ensure_ascii=False)
+            raise AssertionError(
+                f"GerarFalso sem respostas restantes (chamada nº {len(self.chamadas)}, tarefa={tarefa!r})"
+            )
+        item = self.respostas.pop(0)
+        if isinstance(item, BaseException) or (isinstance(item, type) and issubclass(item, BaseException)):
+            raise item
+        if isinstance(item, RespostaLLM):
+            return item
+        return RespostaLLM(item, self.provedor, self.modelo, self.familia)
