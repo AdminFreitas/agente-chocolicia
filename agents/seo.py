@@ -14,7 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from agents.editor import GeradorTexto, ReceitaSaida, _extrair_json
+from agents.editor import ReceitaSaida, _extrair_json
+from services.llm_cliente import GerarFn
 from services.prompt_loader import MontadorPrompt
 
 # Campos que o módulo de SEO tem permissão de propor (docs/05 §13, tarefas 1-6)
@@ -67,7 +68,7 @@ def ajustar_seo(
     *,
     receita: ReceitaSaida,
     tags_existentes: list[str],
-    gerador: GeradorTexto,
+    gerador: GerarFn,
     montador: MontadorPrompt | None = None,
 ) -> ResultadoSeo:
     montador = montador or MontadorPrompt()
