@@ -2,10 +2,10 @@ import json
 
 from agents.editor import ReceitaSaida
 from agents.seo import ajustar_seo
-from tests.fakes_llm import GeradorFalso
+from helpers_criacao import GerarFalso, receita_valida
 from tests.test_editor import RECEITA_VALIDA
 
-RECEITA = ReceitaSaida.model_validate(RECEITA_VALIDA)
+RECEITA = ReceitaSaida.model_validate(receita_valida())
 
 SEO_VALIDA = {
     "titulo": "Brigadeiro de colher cremoso de chocolate meio amargo",
@@ -19,7 +19,7 @@ SEO_VALIDA = {
 
 
 def test_ajustar_seo_aprova_com_saida_valida():
-    gerador = GeradorFalso(respostas=[json.dumps(SEO_VALIDA)])
+    gerador = GerarFalso([json.dumps(SEO_VALIDA)])
     resultado = ajustar_seo(receita=RECEITA, tags_existentes=["chocolate"], gerador=gerador)
     assert resultado.aprovado is True
     assert resultado.saida.palavra_chave_principal == "brigadeiro de colher"
@@ -29,7 +29,7 @@ def test_ajustar_seo_ignora_campo_fora_do_permitido():
     """Mesmo que o modelo tente devolver 'ingredientes' ou 'modo_preparo',
     o módulo de SEO nunca repassa isso para o resultado (docs/05 §13)."""
     payload = {**SEO_VALIDA, "ingredientes": [{"nome": "açúcar"}], "modo_preparo": ["faça diferente"]}
-    gerador = GeradorFalso(respostas=[json.dumps(payload)])
+    gerador = GerarFalso([json.dumps(payload)])
     resultado = ajustar_seo(receita=RECEITA, tags_existentes=[], gerador=gerador)
     assert resultado.aprovado is True
     assert not hasattr(resultado.saida, "ingredientes")
@@ -38,7 +38,7 @@ def test_ajustar_seo_ignora_campo_fora_do_permitido():
 
 def test_ajustar_seo_reprova_saida_fora_dos_limites():
     invalida = {**SEO_VALIDA, "titulo": "curto"}  # menor que 35 caracteres
-    gerador = GeradorFalso(respostas=[json.dumps(invalida)])
+    gerador = GerarFalso([json.dumps(invalida)])
     resultado = ajustar_seo(receita=RECEITA, tags_existentes=[], gerador=gerador)
     assert resultado.aprovado is False
     assert resultado.erro is not None

@@ -2,35 +2,23 @@ import json
 
 import pytest
 
-from agents.editor import ReceitaSaida
-from agents.revisor import FamiliaModeloInvalidaError, revisar
-from tests.fakes_llm import GeradorFalso
+from agents.revisor import FamiliaNaoGarantida, revisar_conteudo
+from helpers_criacao import GerarFalso, receita_valida, ficha_aprovada
 from tests.test_editor import FICHA, RECEITA_VALIDA
 
-RECEITA = ReceitaSaida.model_validate(RECEITA_VALIDA)
+RECEITA = receita_valida()
+FICHA = ficha_aprovada()
 
 
 def test_revisor_recusa_mesma_familia_do_gerador():
-    gerador = GeradorFalso(respostas=[json.dumps({"aprovado": True, "problemas": []})])
-    with pytest.raises(FamiliaModeloInvalidaError):
-        revisar(
-            receita=RECEITA,
-            ficha=FICHA,
-            gerador=gerador,
-            familia_gerador="openai-gpt",
-            familia_revisor="openai-gpt",
-        )
+    gerador = GerarFalso([json.dumps({"aprovado": True, "problemas": []})], familia="familia-a")
+    with pytest.raises(FamiliaNaoGarantida):
+        revisar_conteudo(RECEITA, FICHA, "familia-a", gerar=gerador)
 
 
 def test_revisor_aprova_sem_problemas():
-    gerador = GeradorFalso(respostas=[json.dumps({"aprovado": True, "problemas": []})])
-    resultado = revisar(
-        receita=RECEITA,
-        ficha=FICHA,
-        gerador=gerador,
-        familia_gerador="openai-gpt",
-        familia_revisor="anthropic-claude",
-    )
+    gerador = GerarFalso([json.dumps({"aprovado": True, "problemas": []})], familia="familia-b")
+    resultado = revisar_conteudo(RECEITA, FICHA, "familia-a", gerar=gerador)
     assert resultado.aprovado is True
     assert resultado.problemas == []
 
@@ -42,26 +30,14 @@ def test_revisor_reprova_com_gravidade_alta_mesmo_se_aprovado_true():
             {"campo": "modo_preparo", "descricao": "afirma teste pessoal", "gravidade": "alta"}
         ],
     }
-    gerador = GeradorFalso(respostas=[json.dumps(payload)])
-    resultado = revisar(
-        receita=RECEITA,
-        ficha=FICHA,
-        gerador=gerador,
-        familia_gerador="openai-gpt",
-        familia_revisor="anthropic-claude",
-    )
+    gerador = GerarFalso([json.dumps(payload)], familia="familia-b")
+    resultado = revisar_conteudo(RECEITA, FICHA, "familia-a", gerar=gerador)
     assert resultado.aprovado is False
     assert resultado.problemas[0].gravidade == "alta"
 
 
 def test_revisor_reprova_saida_mal_formada():
-    gerador = GeradorFalso(respostas=["não é json"])
-    resultado = revisar(
-        receita=RECEITA,
-        ficha=FICHA,
-        gerador=gerador,
-        familia_gerador="openai-gpt",
-        familia_revisor="anthropic-claude",
-    )
+    gerador = GerarFalso(["não é json"], familia="familia-b")
+    resultado = revisar_conteudo(RECEITA, FICHA, "familia-a", gerar=gerador)
     assert resultado.aprovado is False
     assert resultado.erro is not None

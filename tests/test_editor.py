@@ -1,7 +1,7 @@
 import json
 
 from agents.editor import criar_receita
-from tests.fakes_llm import GeradorFalso
+from helpers_criacao import GerarFalso
 
 PAUTA = {
     "tema": "Brigadeiro de colher cremoso",
@@ -10,6 +10,8 @@ PAUTA = {
 }
 
 FICHA = {
+    "status": "aprovada_para_criacao",
+    "pauta": {"subcategoria": "brigadeiros-e-docinhos"},
     "ingrediente_base": "leite condensado",
     "ingredientes_consenso": [
         {"nome": "leite condensado", "quantidade_g": 395, "critico": True},
@@ -52,37 +54,37 @@ RECEITA_VALIDA = {
 
 
 def test_criar_receita_aprova_na_primeira_tentativa():
-    gerador = GeradorFalso(respostas=[json.dumps(RECEITA_VALIDA)])
+    gerador = GerarFalso([json.dumps(RECEITA_VALIDA)])
     resultado = criar_receita(
-        ficha=FICHA, pauta=PAUTA, categorias_validas=["brigadeiros-e-docinhos"], gerador=gerador
+        ficha=FICHA, pauta=PAUTA, categorias_validas=["brigadeiros-e-docinhos"], gerar=gerador
     )
-    assert resultado.aprovado is True
-    assert resultado.receita is not None
-    assert resultado.receita.titulo == RECEITA_VALIDA["titulo"]
+    assert resultado.status == "pendente_validacao"
+    assert resultado.conteudo is not None
+    assert resultado.conteudo["titulo"] == RECEITA_VALIDA["titulo"]
     assert resultado.tentativas == 1
     assert len(gerador.chamadas) == 1
 
 
 def test_criar_receita_json_invalido_depois_repara_e_aprova():
-    gerador = GeradorFalso(respostas=["isto não é json", json.dumps(RECEITA_VALIDA)])
+    gerador = GerarFalso(["isto não é json", json.dumps(RECEITA_VALIDA)])
     resultado = criar_receita(
-        ficha=FICHA, pauta=PAUTA, categorias_validas=["brigadeiros-e-docinhos"], gerador=gerador
+        ficha=FICHA, pauta=PAUTA, categorias_validas=["brigadeiros-e-docinhos"], gerar=gerador
     )
-    assert resultado.aprovado is True
+    assert resultado.status == "pendente_validacao"
     assert resultado.tentativas == 2
     # a segunda chamada usou o prompt de reparo (motivos SCH-01 no conteúdo)
-    segunda_chamada_usuario = gerador.chamadas[1][1][-1]["content"]
+    segunda_chamada_usuario = gerador.chamadas[1][1]
     assert "SCH-01" in segunda_chamada_usuario
 
 
 def test_criar_receita_rejeita_apos_esgotar_reparos():
     invalida = {**RECEITA_VALIDA, "titulo": "oi"}  # menor que 5 chars não, mas vamos usar campo faltante
     del invalida["modo_preparo"]  # falta campo obrigatório -> sempre inválido
-    gerador = GeradorFalso(respostas=[json.dumps(invalida)] * 3)
+    gerador = GerarFalso([json.dumps(invalida)] * 3)
     resultado = criar_receita(
-        ficha=FICHA, pauta=PAUTA, categorias_validas=["brigadeiros-e-docinhos"], gerador=gerador
+        ficha=FICHA, pauta=PAUTA, categorias_validas=["brigadeiros-e-docinhos"], gerar=gerador
     )
-    assert resultado.aprovado is False
+    assert resultado.status == "rejeitado"
     assert resultado.rejection_code == "SCH-02"
     assert resultado.tentativas == 3
     assert len(gerador.chamadas) == 3
@@ -92,12 +94,9 @@ def test_modelo_nao_decide_campos_que_sao_do_sistema():
     """O contrato (ReceitaSaida) não tem dificuldade, dieta, status, slug etc.
     — docs/03 §6.2. Um campo extra enviado pelo modelo é simplesmente
     ignorado pelo Pydantic (model_config padrão), nunca persistido."""
-    gerador = GeradorFalso(
-        respostas=[json.dumps({**RECEITA_VALIDA, "dificuldade": "Difícil", "status": "published"})]
-    )
+    gerador = GerarFalso([json.dumps({**RECEITA_VALIDA, "dificuldade": "Difícil", "status": "published"})])
     resultado = criar_receita(
-        ficha=FICHA, pauta=PAUTA, categorias_validas=["brigadeiros-e-docinhos"], gerador=gerador
+        ficha=FICHA, pauta=PAUTA, categorias_validas=["brigadeiros-e-docinhos"], gerar=gerador
     )
-    assert resultado.aprovado is True
-    assert not hasattr(resultado.receita, "dificuldade")
-    assert not hasattr(resultado.receita, "status")
+    assert resultado.status == "rejeitado"
+    assert resultado.rejection_code == "SCH-04"
