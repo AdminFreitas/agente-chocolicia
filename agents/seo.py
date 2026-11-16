@@ -50,6 +50,10 @@ class ResultadoSeo:
     erro: str | None = None
 
 
+# Compatibilidade de nomenclatura com o pipeline educativo.
+ResultadoSEO = ResultadoSeo
+
+
 def _ficha_para_seo(receita: ReceitaSaida, tags_existentes: list[str]) -> dict[str, Any]:
     """Monta o "dado" que vai para o prompt de SEO — nada que o SEO possa
     reescrever indevidamente (sem passos, sem quantidades, sem avisos)."""
