@@ -118,6 +118,10 @@ class RespostaReceita(_Base):
         return v
 
 
+# Compatibilidade de nome para o módulo de SEO; o modelo canônico é RespostaReceita.
+ReceitaSaida = RespostaReceita
+
+
 # --------------------------------------------------------------------------
 # Esquema de saída da dica (docs/03 §7 e docs/04 §10)
 # --------------------------------------------------------------------------

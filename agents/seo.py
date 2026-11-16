@@ -9,13 +9,14 @@ esses campos da receita recebida e nunca os reescreve no resultado.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from agents.editor import ReceitaSaida, _extrair_json
-from services.llm_cliente import GerarFn
+from agents.editor import ReceitaSaida
+from services.llm_cliente import GerarFn, extrair_json
 from services.prompt_loader import MontadorPrompt
 
 # Campos que o módulo de SEO tem permissão de propor (docs/05 §13, tarefas 1-6)
@@ -74,21 +75,18 @@ def ajustar_seo(
     montador = montador or MontadorPrompt()
     prompt_seo = montador.carregar_seo()
     dados = _ficha_para_seo(receita, tags_existentes)
-    mensagens = [
-        {"role": "system", "content": prompt_seo.texto},
-        {
-            "role": "user",
-            "content": (
-                "<dados_receita_validada>\n"
-                f"{dados}\n"
-                "</dados_receita_validada>\n\n"
-                "Responda somente com o objeto JSON das 6 tarefas."
-            ),
-        },
-    ]
-    resposta = gerador.gerar_texto("seo", mensagens)
+    prompt = (
+        f"{prompt_seo.texto}\n\n"
+        "<dados_receita_validada>\n"
+        f"{json.dumps(dados, ensure_ascii=False)}\n"
+        "</dados_receita_validada>\n\n"
+        "Responda somente com o objeto JSON das 6 tarefas."
+    )
+    resposta = gerador("seo", prompt)
     try:
-        dados_saida = _extrair_json(resposta.conteudo)
+        dados_saida, erro_json = extrair_json(resposta.texto)
+        if erro_json or not isinstance(dados_saida, dict):
+            raise ValueError(erro_json or "a resposta deve ser um objeto JSON")
         # trava: ignora qualquer campo fora do permitido, mesmo que o modelo
         # devolva algo a mais (ex.: tentando reescrever ingredientes).
         dados_saida = {k: v for k, v in dados_saida.items() if k in _CAMPOS_PERMITIDOS}
