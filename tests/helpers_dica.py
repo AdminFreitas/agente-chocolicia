@@ -46,7 +46,7 @@ def ficha_dica(**ch):
 
 
 def seo_dica(**ch):
-    d = {"titulo": "Ganache talhou? Veja como recuperar", "descricao_curta": "Entenda por que a ganache talha e recupere o ponto cremoso com poucos passos simples e seguros.",
+    d = {"titulo": "Ganache talhou? Veja como recuperar", "descricao_curta": "Entenda por que a ganache talha e recupere o ponto cremoso com poucos passos simples, seguros e fáceis de aplicar em casa.",
          "palavra_chave_principal": "ganache talhou", "palavras_secundarias": ["recuperar ganache"],
          "texto_alt_imagem": "Ganache de chocolate lisa e brilhante em uma tigela", "tags": ["ganache", "chocolate", "preparo", "dica"],
          "temas_relacionados": ["ponto da ganache", "trufa de chocolate"]}

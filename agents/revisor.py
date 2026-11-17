@@ -29,6 +29,9 @@ class ProblemaRevisao(BaseModel):
     descricao: str = Field(min_length=1, max_length=500)
     gravidade: Literal["alta", "media", "baixa"]
 
+    def __getitem__(self, chave: str):
+        return getattr(self, chave)
+
 
 class RespostaRevisor(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -39,7 +42,7 @@ class RespostaRevisor(BaseModel):
 @dataclass
 class ResultadoRevisao:
     aprovado: bool
-    problemas: list[dict] = field(default_factory=list)
+    problemas: list[ProblemaRevisao] = field(default_factory=list)
     modelo: dict = field(default_factory=dict)
     erro: str | None = None
     prompt_versao: str = ""
@@ -78,8 +81,8 @@ def revisar_conteudo(
     except ValidationError as exc:
         return ResultadoRevisao(False, erro=f"resposta fora do contrato: {exc.error_count()} erro(s)", **base)
 
-    problemas = [p.model_dump() for p in r.problemas]
-    aprovado = r.aprovado and not any(p["gravidade"] == "alta" for p in problemas)
+    problemas = list(r.problemas)
+    aprovado = r.aprovado and not any(p.gravidade == "alta" for p in problemas)
     return ResultadoRevisao(aprovado, problemas, **base)
 
 

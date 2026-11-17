@@ -42,3 +42,11 @@ def test_ajustar_seo_reprova_saida_fora_dos_limites():
     resultado = ajustar_seo(receita=RECEITA, tags_existentes=[], gerador=gerador)
     assert resultado.aprovado is False
     assert resultado.erro is not None
+
+
+def test_ajustar_seo_reprova_descricao_curta_com_menos_de_120_caracteres():
+    invalida = {**SEO_VALIDA, "descricao_curta": "Descrição curta demais."}
+    gerador = GerarFalso([json.dumps(invalida)])
+    resultado = ajustar_seo(receita=RECEITA, tags_existentes=[], gerador=gerador)
+    assert resultado.aprovado is False
+    assert resultado.erro is not None and "descricao_curta" in resultado.erro

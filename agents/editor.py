@@ -201,7 +201,10 @@ def _falhas_pydantic(exc: ValidationError) -> list[Falha]:
         else:
             id_, det = "SCH-02", e["msg"]
         falhas.append(Falha(id_, det, campo=campo))
-    return falhas
+    # Quando há erro estrutural e erro de limite na mesma resposta, o contrato
+    # deve reportar primeiro a violação estrutural (SCH-02). Isso evita que o
+    # código de rejeição oscile conforme a ordem interna do Pydantic.
+    return sorted(falhas, key=lambda f: {"SCH-02": 0, "SCH-03": 1, "SCH-04": 2}.get(f.id, 3))
 
 
 def validar_saida(texto: str, pauta: dict) -> tuple[RespostaReceita | None, list[Falha]]:
@@ -294,6 +297,10 @@ def _laco_criacao(
         if not bloqueantes:
             res.conteudo = conteudo
             res.status = "aprovado" if validador is not None else "pendente_validacao"
+            break
+        # Campos reservados ao sistema não são reparáveis pelo modelo.
+        if any(f.id == "SCH-04" for f in bloqueantes):
+            res.rejection_code = "SCH-04"
             break
         if tentativa > max_reparos:
             res.rejection_code = bloqueantes[0].id  # 07 §4.3: código da verificação

@@ -136,9 +136,14 @@ class MontadorPrompt:
         """Usa prompts/reparo.md (docs/03 §12.2), preenchendo os placeholders."""
         reparo = self._carregar("reparo")
         lista_erros = "\n".join(f"- {m}" for m in motivos) or "- (sem detalhe informado)"
-        texto = reparo.texto.replace(
-            "{lista de erros do validador}", lista_erros
-        ).replace("{JSON anterior}", resposta_anterior)
+        texto = (
+            reparo.texto
+            .replace("{{ERROS}}", lista_erros)
+            .replace("{{RESPOSTA_ANTERIOR}}", resposta_anterior)
+            # Compatibilidade com prompts antigos ainda presentes em cópias locais.
+            .replace("{lista de erros do validador}", lista_erros)
+            .replace("{JSON anterior}", resposta_anterior)
+        )
         return PromptCarregado(nome="reparo", versao=reparo.versao, texto=texto)
 
     def carregar_revisor(self) -> PromptCarregado:

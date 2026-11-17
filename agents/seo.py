@@ -49,6 +49,28 @@ class ResultadoSeo:
     prompt_version: str | None
     erro: str | None = None
 
+    @property
+    def aplicado(self) -> bool:
+        """Nome usado pelo pipeline educativo para o mesmo estado."""
+        return self.aprovado
+
+    @property
+    def conteudo(self) -> dict[str, Any] | None:
+        """Receita original com os campos SEO aprovados aplicados."""
+        if not self.aprovado or self.saida is None:
+            return None
+        original = getattr(self, "_original", None)
+        if original is None:
+            return self.saida.model_dump()
+        resultado = dict(original)
+        resultado.update(self.saida.model_dump())
+        return resultado
+
+    @property
+    def motivo(self) -> str | None:
+        """Alias usado pelo pipeline educativo para o erro de SEO."""
+        return self.erro
+
 
 # Compatibilidade de nomenclatura com o pipeline educativo.
 ResultadoSEO = ResultadoSeo
@@ -58,14 +80,14 @@ def _ficha_para_seo(receita: ReceitaSaida, tags_existentes: list[str]) -> dict[s
     """Monta o "dado" que vai para o prompt de SEO — nada que o SEO possa
     reescrever indevidamente (sem passos, sem quantidades, sem avisos)."""
     return {
-        "titulo_atual": receita.titulo,
-        "descricao_atual": receita.descricao_curta,
-        "introducao": receita.introducao,
-        "subcategoria": receita.subcategoria,
-        "tags_propostas": receita.tags,
+        "titulo_atual": receita.get("titulo") if isinstance(receita, dict) else receita.titulo,
+        "descricao_atual": receita.get("descricao_curta") if isinstance(receita, dict) else receita.descricao_curta,
+        "introducao": receita.get("introducao") if isinstance(receita, dict) else receita.introducao,
+        "subcategoria": receita.get("subcategoria") if isinstance(receita, dict) else receita.subcategoria,
+        "tags_propostas": receita.get("tags", []) if isinstance(receita, dict) else receita.tags,
         "tags_existentes": tags_existentes,
-        "temas_relacionados_propostos": receita.temas_relacionados,
-        "texto_alt_imagem_atual": receita.texto_alt_imagem,
+        "temas_relacionados_propostos": receita.get("temas_relacionados", []) if isinstance(receita, dict) else receita.temas_relacionados,
+        "texto_alt_imagem_atual": receita.get("texto_alt_imagem") if isinstance(receita, dict) else receita.texto_alt_imagem,
     }
 
 
@@ -103,9 +125,11 @@ def ajustar_seo(
             prompt_version=prompt_seo.versao,
             erro=f"SEO-00: saída inválida ({exc})",
         )
-    return ResultadoSeo(
+    resultado = ResultadoSeo(
         aprovado=True,
         saida=saida,
         modelo_ia=resposta.modelo,
         prompt_version=prompt_seo.versao,
     )
+    resultado._original = receita if isinstance(receita, dict) else receita.model_dump()
+    return resultado

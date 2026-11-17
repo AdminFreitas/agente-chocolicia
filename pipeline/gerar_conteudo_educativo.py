@@ -201,7 +201,11 @@ def gerar_dica(
 
     # ---- 5. SEO (também é quem escreve o texto alternativo da capa)
     try:
-        s = seo.ajustar_seo(cri.conteudo, tags_existentes=deps.tags_existentes, gerar=deps.gerar)
+        s = seo.ajustar_seo(
+            receita=cri.conteudo,
+            tags_existentes=deps.tags_existentes,
+            gerador=deps.gerar,
+        )
     except Exception as exc:
         return falhar("error", "seo", "SEO-ERRO", type(exc).__name__)
     r.seo = s
