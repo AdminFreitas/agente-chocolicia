@@ -1,21 +1,12 @@
-"""
-integration/cliente_site.py — Cliente HTTP do agente para o site (docs/06 §4 a §11, §14;
-docs/01 §8.4).
+"""Cliente HTTP do agente para os contratos atual e v1 do site.
 
-Segue o contrato da DOC, não o estado atual do site (ver "Lacunas do site"):
-- Authorization: Bearer <token>; dois escopos (draft e publish); o token do agente só
-  cria. Status "published" exige o token de escopo publish e fase >= 1 (checado aqui
-  antes de enviar; o site confere de novo).
-- Cabeçalhos: Idempotency-Key (hash estável de content_type, topic_slug e run_id),
-  X-Contract-Version, X-Request-Id (novo a cada requisição HTTP).
-- Erros e tentativas (06 §11): 400/422 não reenviam; 401 interrompe; 403 interrompe a
-  publicação; 409 -> confirma por GET /api/content/lookup; 413 -> reduz e reenvia UMA
-  vez (se houver redutor); 429 respeita Retry-After e `daily_cap_reached` encerra;
-  5xx e timeout -> até 3 tentativas com espera crescente, sempre com a MESMA chave.
-- Somente HTTPS. O token nunca aparece em log, repr nem mensagem de erro.
-- dry_run: monta e valida o payload e devolve sem enviar (nada de rede).
+O runtime usa `legacy` até o servidor aceitar v1: esse caminho envia somente o schema
+atual de receitas, omite `X-Contract-Version` e bloqueia publicação. O caminho v1
+mantém os cabeçalhos e escopos definidos em docs/06.
 
-Sem rede por conta própria: o transporte é injetável (httpx.Client), para testes.
+Erros 4xx não são reenviados; 429 respeita Retry-After; 5xx e timeout têm retentativas
+limitadas. Tokens não aparecem em logs, repr nem mensagens de erro. `dry_run` valida
+o payload e não faz rede. O transporte é injetável para testes.
 """
 
 from __future__ import annotations
@@ -219,18 +210,22 @@ class ClienteSite:
 
     def _token_para(self, status: str) -> str:
         if status == "published":
+            if self.contract == "legacy":
+                raise EscopoLocalInsuficiente(
+                    "publicação bloqueada: o endpoint atual não oferece escopo publish"
+                )
             if self.fase < 1:
                 raise EscopoLocalInsuficiente("a Fase 0 não publica: use status 'draft' (docs/01 §7.4)")
             if not self._tokens["publish"]:
                 raise EscopoLocalInsuficiente("falta o token de escopo publish (SITE_TOKEN_PUBLISH)")
             return self._tokens["publish"]
-        token = self._tokens["draft"] or self._tokens["publish"]
+        token = self._tokens["draft"]
         if not token:
             raise EscopoLocalInsuficiente("falta token (SITE_TOKEN_DRAFT)")
         return token
 
     def _token_leitura(self) -> str:
-        token = self._tokens["draft"] or self._tokens["publish"]
+        token = self._tokens["draft"]
         if not token:
             raise EscopoLocalInsuficiente("falta token (SITE_TOKEN_DRAFT)")
         return token
@@ -261,7 +256,9 @@ class ClienteSite:
             rid = self._gerar_id()
             ids.append(rid)
             cab = {"Authorization": f"Bearer {token}", "Accept": "application/json", "X-Request-Id": rid,
-                   "X-Contract-Version": self.contract_version}
+                   }
+            if self.contract != "legacy":
+                cab["X-Contract-Version"] = self.contract_version
             if corpo is not None:
                 cab["Content-Type"] = "application/json"
             if chave:
@@ -336,6 +333,10 @@ class ClienteSite:
         return self._criar("/api/recipes", "recipe", ReceitaV1, payload, run_id, reduzir)
 
     def publicar_receita(self, slug: str) -> RespostaCriacao:
+        if self.contract == "legacy":
+            raise EscopoLocalInsuficiente(
+                "publicação bloqueada: o endpoint atual não oferece escopo publish"
+            )
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
             raise ContratoInvalido([{"campo": "slug", "detalhe": "slug inválido"}])
         token = self._tokens["publish"]
@@ -406,7 +407,7 @@ class ClienteSite:
             return RespostaCriacao(
                 "dry_run", payload=corpo,
                 cabecalhos={"Authorization": "Bearer ***", "Content-Type": "application/json",
-                            "Idempotency-Key": chave, "alvo": "POST /api/recipes (legacy)"},
+                            "Idempotency-Key": chave, "alvo": "POST /api/recipes"},
             )
         try:
             resp, ids = self._requisitar(
@@ -429,9 +430,9 @@ class ClienteSite:
             raise ErroSite(
                 "resposta de criação sem identificador e slug", http_status=resp.status_code, request_id=ids[-1]
             )
-        if validado.status == "published" and dados.get("status") != "published":
+        if dados.get("status") != validado.status:
             raise ErroSite(
-                "API não confirmou status published", http_status=resp.status_code, request_id=ids[-1]
+                f"API não confirmou status {validado.status}", http_status=resp.status_code, request_id=ids[-1]
             )
         replay = resp.headers.get("idempotent-replay", "").lower() == "true"
         return RespostaCriacao(

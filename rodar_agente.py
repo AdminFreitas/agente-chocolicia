@@ -116,9 +116,17 @@ def main(argv: list[str] | None = None) -> int:
 
         run_id = os.environ.get("AGENT_RUN_ID") or uuid.uuid4().hex
         if args.receita:
-            classificacao = services["catalogo"].selecionar_subcategoria(
-                fase, slug=args.subcategoria
-            )
+            if services["runtime"].settings.site_contract == "legacy":
+                if args.subcategoria:
+                    raise ValueError(
+                        "o endpoint atual não expõe taxonomia ativa; "
+                        "subcategoria não pode ser verificada com segurança"
+                    )
+                classificacao = services["catalogo"].selecionar_categoria_legada()
+            else:
+                classificacao = services["catalogo"].selecionar_subcategoria(
+                    fase, slug=args.subcategoria
+                )
             from agents.planejador import gerar_topic_slug
             from pipeline.gerar_receitas import gerar_receita
 
@@ -136,8 +144,7 @@ def main(argv: list[str] | None = None) -> int:
                 "tema": tema,
                 "topic_slug": topic_slug,
                 "categoria": classificacao["category_name"],
-                "category_slug": classificacao["category_slug"],
-                "subcategoria": classificacao["subcategory_slug"],
+                "subcategoria": classificacao.get("subcategory_slug"),
                 "categoria_legada": classificacao["category_name"],
                 "tipo_conteudo": "receita",
                 "origem": "manual",
@@ -162,7 +169,10 @@ def main(argv: list[str] | None = None) -> int:
                         "motivos": ["topic_slug já reservado"],
                     }, ensure_ascii=False))
                     return 1
-                if services["catalogo"].existe(topic_slug, tema):
+                if (
+                    services["runtime"].settings.site_contract != "legacy"
+                    and services["catalogo"].existe(topic_slug, tema)
+                ):
                     store.update_run(
                         run_id, "rejected", "pauta",
                         {"rejection_code": "SIM-04", "motivo": "conteúdo já existe no site"},

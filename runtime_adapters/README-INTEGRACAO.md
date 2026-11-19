@@ -7,7 +7,7 @@ corrigidos do checkout local.
 ## O que entrega
 - Pesquisa real Brave Search API, com filtro final por domínios autorizados.
 - Cliente LLM compatível com API Chat Completions; modelo e família explícitos por tarefa.
-- Leitura de catálogo/taxonomia/cobertura via endpoints documentados do site.
+- Seleção de categorias do enum atual de receitas, sem presumir disponibilidade da API de taxonomia.
 - Persistência PostgreSQL para execuções, custos, imagens utilizadas e publicações.
 - Fábrica do `ClienteSite` existente, respeitando fase, contrato e dry-run.
 - Configuração por ambiente e testes unitários básicos.
@@ -24,9 +24,9 @@ com seu `.env.example`. Não copie segredos.
 2. Configure banco de desenvolvimento, chave Brave e chave LLM.
 3. Preencha modelo **e família** para criação, reparo, revisão e SEO. A família
    é uma declaração de configuração e não é inferida pelo adaptador.
-4. Configure `SITE_BASE_URL` para preview e `SITE_TOKEN_DRAFT`.
-5. Mantenha `SITE_PHASE=0` e `--dry-run` até validar o contrato.
-6. Só use token de publicação em ambiente production isolado.
+4. Configure `SITE_BASE_URL` para preview e o token atual `RECIPES_AGENT_TOKEN`.
+5. Mantenha `SITE_CONTRACT=legacy`, `AGENT_PHASE=0` e `DRY_RUN=true` até concluir a integração.
+6. O cliente legado só envia `draft`; publicação está bloqueada, sem token publish.
 
 ## Integração com os pipelines
 `runtime_adapters.cli_contract.build_services()` entrega:
@@ -46,9 +46,11 @@ locais informadas. Não substitua esses arquivos com esta versão.
 ## Limites explícitos
 - O adaptador de busca implementa Brave. O leitor HTTP de páginas não é ativado:
   antes é necessário validar termos de uso, robots.txt e fontes autorizadas.
-- Os endpoints de catálogo (`/api/catalog/ingredients`, `/api/taxonomy`,
-  `/api/coverage`, `/api/content/lookup`) precisam existir e exigir autenticação
-  no ambiente de preview.
+- Os endpoints de taxonomia e lookup não estão disponíveis no contrato observado.
+  O agente não envia subcategoria sem poder verificar que está ativa/habilitada;
+  duplicidade é reservada no banco do agente e conflitos de slug do site falham.
+- `POST /api/articles` e a pesquisa composta de dicas seguem bloqueados; não há
+  envio de dicas até esses componentes estarem disponíveis e testados.
 - O esquema PostgreSQL é criado por `PostgresStore.migrate()`. Ajuste-o à
   política de retenção e às tabelas já existentes antes de produção.
 - Não foram inventados nomes/famílias de modelos. O pipeline deve continuar

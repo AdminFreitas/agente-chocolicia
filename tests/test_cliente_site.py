@@ -370,8 +370,14 @@ def test_receita_legada_envia_somente_categoria_e_nao_repete_timeout():
     assert r.situacao == "criado" and req.url.path == "/api/recipes"
     assert sent["category"] == "Brigadeiros e docinhos"
     assert "subcategorySlug" not in sent and "cover" not in sent
+    assert "x-contract-version" not in req.headers
     expected_key = hashlib.sha256(b"recipe|brigadeiro-cremoso").hexdigest()
     assert req.headers["idempotency-key"] == expected_key
+    with pytest.raises(CS.EscopoLocalInsuficiente, match="não oferece escopo publish"):
+        c.criar_receita({**legado, "status": "published"}, run_id="legacy-run")
+    with pytest.raises(CS.EscopoLocalInsuficiente, match="não oferece escopo publish"):
+        c.publicar_receita("brigadeiro-cremoso")
+    assert len(site.posts()) == 1
 
     timeout_site = Site(httpx.ReadTimeout("timeout"))
     timeout_client = cliente(timeout_site, contract="legacy")
@@ -382,3 +388,26 @@ def test_receita_legada_envia_somente_categoria_e_nao_repete_timeout():
     assert exc.value.codigo == "legacy_outcome_uncertain"
     assert len(timeout_site.posts()) == 3
     assert len({req.headers["idempotency-key"] for req in timeout_site.posts()}) == 1
+
+
+def test_receita_legada_nao_aceita_resposta_sem_confirmacao_de_draft():
+    legado = {
+        "title": "Brigadeiro cremoso de colher",
+        "excerpt": "Um brigadeiro cremoso, simples de preparar e servido em pequenas porções.",
+        "category": "Brigadeiros e docinhos",
+        "coverImageUrl": "https://images.example.test/brigadeiro.jpg",
+        "coverImageAlt": "Brigadeiro cremoso servido em uma tigela",
+        "ingredients": [{"name": "Massa", "items": [
+            {"name": "leite condensado", "quantity": "395", "unit": "g"},
+        ]}],
+        "steps": [{"instruction": "Misture os ingredientes."}, {"instruction": "Cozinhe em fogo baixo."}],
+        "prepTimeMin": 10,
+        "cookTimeMin": 15,
+        "servings": 6,
+        "difficulty": "Fácil",
+        "status": "draft",
+    }
+    site = Site(resp(201, {"id": 8, "slug": "brigadeiro-cremoso"}))
+    with pytest.raises(CS.ErroSite, match="não confirmou status draft"):
+        cliente(site, contract="legacy").criar_receita(legado, run_id="r")
+    assert len(site.posts()) == 1

@@ -90,12 +90,10 @@ class Settings:
         phase = _int("AGENT_PHASE", 0, 0)
         if phase > 3:
             raise ConfigurationError("SITE_PHASE deve estar entre 0 e 3")
-        contract = (os.getenv("SITE_CONTRACT") or "v1").strip().lower()
-        if contract != "v1":
-            raise ConfigurationError("SITE_CONTRACT deve ser v1; contratos legados não são suportados")
-        contract_version = (os.getenv("CONTRACT_VERSION") or "1").strip()
-        if contract_version != "1":
-            raise ConfigurationError("CONTRACT_VERSION deve ser 1")
+        contract = (os.getenv("SITE_CONTRACT") or "legacy").strip().lower()
+        if contract != "legacy":
+            raise ConfigurationError("SITE_CONTRACT deve ser legacy; o destino atual não aceita contrato v1")
+        contract_version = "1"
         base = os.getenv("SITE_BASE_URL", "").strip()
         if not base and env == "test":
             base = "http://127.0.0.1:3000"
@@ -145,14 +143,8 @@ class Settings:
             llm_base_url=llm_base_url,
             llm_models=models,
             site_base_url=base,
-            site_token_draft=(
-                os.getenv("SITE_TOKEN_DRAFT")
-                or os.getenv("RECIPES_AGENT_TOKEN_DRAFT", "")
-            ).strip(),
-            site_token_publish=(
-                os.getenv("SITE_TOKEN_PUBLISH")
-                or os.getenv("RECIPES_AGENT_TOKEN_PUBLISH", "")
-            ).strip(),
+            site_token_draft=os.getenv("RECIPES_AGENT_TOKEN", "").strip(),
+            site_token_publish="",
             site_phase=phase,
             site_contract=contract,
             contract_version=contract_version,

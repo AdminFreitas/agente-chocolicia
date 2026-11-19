@@ -1,6 +1,6 @@
 """
-integration/adaptador_receita.py — Converte a receita do agente em português para o
-contrato v1 documentado ou para o contrato legado de receitas do site.
+integration/adaptador_receita.py — Converte a receita do agente para o contrato v1
+documentado ou para o schema atual de receitas do site.
 
 Quem decide o quê (docs/03 §6.2; 04 §6.3):
 - O MODELO escreveu: título, descrição, introdução, ingredientes, passos, dica extra,
@@ -8,8 +8,8 @@ Quem decide o quê (docs/03 §6.2; 04 §6.3):
 - O CÓDIGO define aqui: dificuldade (passos + técnicas da ficha), slug, dieta (da ficha,
   que veio do catálogo), ocasiões (da pauta), slug de ingrediente (catálogo), autor/aviso
   (o site), status (parâmetro), aiModel e generationMeta.
-- O payload é validado pelo contrato v1 (API-01) antes de existir: se não passar, levanta
-  ContratoInvalido e nada vai ao site.
+- O runtime atual escolhe o payload compatível com o endpoint existente; ambos os
+  adaptadores validam antes do envio e falham sem efeitos de rede.
 
 PENDENTE: storageNotes (vem da base curada config/seguranca.json, cujo formato a doc não
 define; entra como parâmetro) e collections (a pauta não as traz; parâmetro).
@@ -179,7 +179,6 @@ def montar_payload_receita_legada(
         "title": conteudo["titulo"],
         "excerpt": conteudo["descricao_curta"],
         "category": categoria,
-        "categorySlug": pauta.get("category_slug"),
         "subcategorySlug": pauta.get("subcategoria"),
         "coverImageUrl": cover.get("sourceImageUrl"),
         "coverImageAlt": conteudo["texto_alt_imagem"],

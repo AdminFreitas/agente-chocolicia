@@ -27,6 +27,10 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
     if target not in {"preview", "production"}:
         raise ConfigurationError(f"target não suportado: {target}")
     if target == "production":
+        if settings.site_contract == "legacy":
+            raise ConfigurationError(
+                "publicação bloqueada: o endpoint atual só permite criação como draft"
+            )
         if settings.environment != "production":
             raise ConfigurationError("target production exige AGENT_ENV=production")
         if settings.site_base_url != "https://www.chocolicia.site":
@@ -42,8 +46,8 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
         )
     elif settings.environment == "production":
         raise ConfigurationError("AGENT_ENV=production exige target=production")
-    if settings.site_contract != "v1":
-        raise ConfigurationError("somente CONTRACT_VERSION=1 e SITE_CONTRACT=v1 são suportados")
+    if settings.site_contract != "legacy":
+        raise ConfigurationError("o destino atual exige SITE_CONTRACT=legacy")
     if settings.search_provider != "brave":
         raise ConfigurationError(
             f"SEARCH_PROVIDER não suportado: {settings.search_provider}"
@@ -53,7 +57,7 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
             f"LLM_PROVIDER não suportado: {settings.llm_provider}"
         )
     if not dry_run and target != "production" and not settings.site_token_draft:
-        raise ConfigurationError("SITE_TOKEN_DRAFT ausente")
+        raise ConfigurationError("RECIPES_AGENT_TOKEN ausente")
     if not dry_run and not settings.database_url:
         raise ConfigurationError("DATABASE_URL_AGENTE ausente para bloqueio de duplicatas")
     store = None
@@ -61,7 +65,7 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
         store = PostgresStore(settings.database_url)
         store.migrate()
     catalog = SiteCatalog(
-        settings.site_base_url, settings.site_token_draft or settings.site_token_publish,
+        settings.site_base_url, settings.site_token_draft,
         timeout=settings.request_timeout,
     )
     search = BraveSearch(

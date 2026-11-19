@@ -41,6 +41,17 @@ def test_payload_legado_usa_categoria_sem_subcategoria():
     assert d["status"] == "draft"
     assert d["subcategorySlug"] == "brigadeiros-e-docinhos"
     assert d["coverImageUrl"] == COVER_STOCK["sourceImageUrl"]
+    assert "categorySlug" not in d and "cover" not in d
+
+
+def test_adaptador_legado_rejeita_capa_sem_url_real():
+    with pytest.raises(ContratoInvalido, match="URL de capa existente"):
+        A.montar_payload_receita_legada(
+            conteudo_editor(),
+            pauta={**PAUTA, "categoria_legada": "Bolos"},
+            ficha=ficha_aprovada(),
+            cover=COVER_GERAR,
+        )
 
 
 def test_status_padrao_draft_e_dica_extra_vai_para_tips_e_faq():

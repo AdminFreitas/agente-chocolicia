@@ -68,14 +68,49 @@ def test_ollama_default_usa_loopback_e_timeout_local(monkeypatch):
     assert settings.llm_timeout == 180
 
 
-def test_credencial_publish_nao_e_usada_como_token_draft(monkeypatch):
+def test_token_publish_nao_e_lido_no_contrato_legado(monkeypatch):
     monkeypatch.setenv("RECIPES_AGENT_TOKEN_PUBLISH", "publish-only")
+    monkeypatch.delenv("SITE_TOKEN_PUBLISH", raising=False)
     monkeypatch.delenv("SITE_TOKEN_DRAFT", raising=False)
     monkeypatch.delenv("RECIPES_AGENT_TOKEN_DRAFT", raising=False)
     monkeypatch.delenv("RECIPES_AGENT_TOKEN", raising=False)
     settings = Settings.from_env()
-    assert settings.site_token_publish == "publish-only"
+    assert settings.site_token_publish == ""
     assert settings.site_token_draft == ""
+
+
+def test_token_unico_atual_e_mapeado_somente_para_draft(monkeypatch):
+    monkeypatch.setenv("RECIPES_AGENT_TOKEN", "site-agent-token")
+    monkeypatch.delenv("SITE_TOKEN_DRAFT", raising=False)
+    monkeypatch.delenv("RECIPES_AGENT_TOKEN_DRAFT", raising=False)
+    settings = Settings.from_env()
+    assert settings.site_token_draft == "site-agent-token"
+    assert settings.site_token_publish == ""
+    assert settings.site_contract == "legacy"
+
+
+def test_cliente_legado_bloqueia_alvo_production(monkeypatch):
+    from runtime_adapters.site import build_site_client
+
+    monkeypatch.setenv("AGENT_ENV", "production")
+    monkeypatch.setenv("SITE_BASE_URL", "https://www.chocolicia.site")
+    settings = Settings.from_env()
+    with pytest.raises(ConfigurationError, match="só permite criação como draft"):
+        build_site_client(settings, dry_run=False, target="production")
+
+
+def test_categoria_legada_nao_consulta_taxonomia_nao_disponivel(monkeypatch):
+    from runtime_adapters.catalog import SiteCatalog
+
+    def falha_rede(*args, **kwargs):
+        raise AssertionError("o contrato atual não disponibiliza taxonomia")
+
+    monkeypatch.setattr(SiteCatalog, "taxonomy", falha_rede)
+    categoria = SiteCatalog("https://site.test", "").selecionar_categoria_legada()
+    assert categoria["category_name"] in {
+        "Bolos", "Brigadeiros e docinhos", "Tortas", "Sobremesas",
+        "Chocolates", "Festas e buffet", "Datas especiais",
+    }
 
 
 @pytest.mark.parametrize("base", [

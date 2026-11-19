@@ -91,6 +91,14 @@ Ambientes: **produção** e **preview** (deploy de preview da Vercel com um bran
 | `POST /api/admin/{recipes\|articles}/{slug}/restore` | **Novo** | Admin | Restaura |
 | `POST /api/admin/content/bulk-archive` | **Novo** | Admin | Reversão em lote por `run_id`, `prompt_version`, `ai_model` ou intervalo de datas |
 
+### 5.1 Compatibilidade operacional do agente
+
+O runtime do agente está configurado para o endpoint atualmente implementado em `POST /api/recipes`, não para os endpoints propostos nesta especificação: envia `category`, `coverImageUrl` e `coverImageAlt`, sem `X-Contract-Version`, e exige que a resposta confirme o status enviado. A autenticação operacional usa `RECIPES_AGENT_TOKEN` como credencial de criação de rascunhos. O cliente do agente bloqueia publicação quando `SITE_CONTRACT=legacy`.
+
+As categorias aceitas são espelhadas de `RECIPE_CATEGORIES` em `shared/recipes.ts` do site para evitar chamadas aos endpoints de taxonomia ainda indisponíveis. Como o estado ativo e o risco das subcategorias não podem ser consultados, o agente não envia `subcategorySlug`; uma subcategoria solicitada manualmente é rejeitada. O adaptador só converte uma capa de banco de imagens com URL já fornecida; capa gerada ou ausência de URL válida rejeita o envio. A lista de categorias precisa ser sincronizada quando o schema do site mudar.
+
+O fluxo v1 descrito abaixo continua sendo o contrato-alvo, mas não deve ser ativado até o endpoint do site aceitar o cabeçalho e o payload v1. O endpoint `POST /api/articles` não está habilitado no agente; dicas não são enviadas ao site enquanto não houver endpoint confirmado e pesquisa composta.
+
 ---
 
 ## 6. Contrato de `POST /api/recipes` (versão 1)

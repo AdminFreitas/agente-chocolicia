@@ -29,6 +29,8 @@ Como não há revisão humana nem teste prático das receitas, a segurança do p
 | Edição de conteúdo publicado | Não existe na primeira versão. Correção = arquivar e, se for o caso, nova receita |
 | Assinatura e avisos | "Equipe Chocolícia"; aviso de IA no topo, aviso final sobre alergias e rótulos, legenda de imagem (`01-ARQUITETURA.md`, seção 8.5) |
 
+**Limite operacional atual:** o agente usa `SITE_CONTRACT=legacy` até o site aceitar o contrato v1. Nesse modo, o cliente só envia receitas como `draft` ao preview e bloqueia os endpoints de publicação. Os workflows agendados executam dry-run. Dicas não são enviadas: a pesquisa de dicas ainda não está composta e `POST /api/articles` não foi confirmado no site.
+
 ---
 
 ## 3. Fases de lançamento

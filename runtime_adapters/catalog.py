@@ -3,6 +3,18 @@ from dataclasses import dataclass
 import secrets
 import httpx
 
+# Mirror of RECIPE_CATEGORIES in shared/recipes.ts.
+_CATEGORIAS_LEGADAS = (
+    "Bolos",
+    "Brigadeiros e docinhos",
+    "Tortas",
+    "Sobremesas",
+    "Chocolates",
+    "Festas e buffet",
+    "Datas especiais",
+)
+
+
 @dataclass
 class SiteCatalog:
     base_url: str
@@ -92,6 +104,10 @@ class SiteCatalog:
         if not candidatas:
             raise RuntimeError("nenhuma subcategoria de doces está habilitada para o agente")
         return secrets.choice(candidatas)
+
+    def selecionar_categoria_legada(self) -> dict:
+        """Seleciona uma categoria do enum fixo do schema atual do site."""
+        return {"category_name": secrets.choice(_CATEGORIAS_LEGADAS)}
 
     def coverage(self):
         return self._get("/api/coverage")

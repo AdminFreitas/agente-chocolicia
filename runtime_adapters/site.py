@@ -6,6 +6,10 @@ def build_site_client(settings: Settings, *, dry_run: bool, target: str = "previ
     if not settings.site_base_url:
         raise ConfigurationError("SITE_BASE_URL ausente")
     production = target == "production"
+    if production and settings.site_contract == "legacy":
+        raise ConfigurationError(
+            "publicação bloqueada: o endpoint atual só permite criação como draft"
+        )
     if production and settings.environment != "production":
         raise ConfigurationError("target production exige AGENT_ENV=production")
     if production and dry_run:

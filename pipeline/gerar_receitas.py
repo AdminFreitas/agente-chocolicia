@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from agents import editor, revisor, seo
 from agents.editor import Falha, ResultadoCriacao
-from integration.adaptador_receita import montar_payload_receita
+from integration.adaptador_receita import montar_payload_receita, montar_payload_receita_legada
 from integration.cliente_site import ClienteSite, ContratoInvalido, ErroSite
 from services.imagem_service import escolher_capa
 from validators import ResultadoValidacao, validar_conteudo
@@ -55,7 +55,10 @@ def validar_por_ponto_unico(conteudo: dict, contexto: dict | None = None) -> Res
 
 def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: str, dry_run: bool = True, publicar: bool = False, idempotency_key: str | None = None, validators_version: str = "pendente") -> ResultadoReceita:
     """Executa pesquisa, criação, validação, revisão, SEO, imagem, contrato e envio."""
-    if not pauta.get("topic_slug") or not pauta.get("subcategoria"):
+    if not pauta.get("topic_slug") or (
+        not pauta.get("subcategoria")
+        and getattr(deps.cliente, "contract", "v1") != "legacy"
+    ):
         return ResultadoReceita("rejected", "pauta", "PAUTA-01", motivos=["pauta sem topic_slug ou subcategoria"])
     try:
         pesquisa = deps.pesquisar(pauta)
@@ -93,7 +96,12 @@ def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: 
         return ResultadoReceita("rejected", "imagem", "IMG-07", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem)
     status = "published" if publicar and not dry_run and fase >= 1 else "draft"
     try:
-        payload = montar_payload_receita(conteudo, pauta=pauta, ficha=ficha, cover=imagem.cover, run_id=run_id, fase=fase, modelo=criacao.modelo, prompt_version=criacao.prompt_version, catalogo=deps.catalogo, status=status, validators_version=validators_version)
+        if getattr(deps.cliente, "contract", "v1") == "legacy":
+            payload = montar_payload_receita_legada(
+                conteudo, pauta=pauta, ficha=ficha, cover=imagem.cover, status=status
+            )
+        else:
+            payload = montar_payload_receita(conteudo, pauta=pauta, ficha=ficha, cover=imagem.cover, run_id=run_id, fase=fase, modelo=criacao.modelo, prompt_version=criacao.prompt_version, catalogo=deps.catalogo, status=status, validators_version=validators_version)
     except ContratoInvalido as exc:
         return ResultadoReceita("rejected", "contrato", "API-01", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem, motivos=[str(exc)])
     try:
