@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -32,7 +33,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import ValidationError
 
-from integration.contratos import CONTRACT_VERSION, ArtigoV1, ReceitaV1
+from integration.contratos import CONTRACT_VERSION, ArtigoV1, ReceitaLegada, ReceitaV1
 
 log = logging.getLogger(__name__)
 
@@ -119,6 +120,10 @@ class ConflitoDeSlug(ErroSite):  # 409 sem conteúdo da pauta no site: o slug é
     pass
 
 
+class EndpointBloqueado(ErroSite):
+    """O endpoint correspondente não foi confirmado como implantado."""
+
+
 # --------------------------------------------------------------------------
 # Resultado
 # --------------------------------------------------------------------------
@@ -173,15 +178,36 @@ class ClienteSite:
         max_tentativas: int = MAX_TENTATIVAS,
         base_espera: float = 1.0,
         gerar_id: Callable[[], str] = lambda: uuid.uuid4().hex,
+        allow_local_http: bool = False,
+        allow_production: bool = False,
+        articles_enabled: bool = False,
+        contract: str = "v1",
     ):
         partes = urlparse(base_url or "")
-        if partes.scheme.lower() != "https" or not partes.hostname:
-            raise ConfiguracaoInvalida("SITE_BASE_URL deve ser uma URL HTTPS (docs/06 §4)")
+        host = (partes.hostname or "").lower().rstrip(".")
+        if host in {"chocolicia.site", "www.chocolicia.site"} or host.endswith(".chocolicia.site"):
+            if not allow_production or host != "www.chocolicia.site" or partes.scheme.lower() != "https":
+                raise ConfiguracaoInvalida(
+                    "produção exige opt-in explícito e https://www.chocolicia.site"
+                )
+        elif allow_production:
+            raise ConfiguracaoInvalida("opt-in de produção só aceita www.chocolicia.site")
+        if partes.scheme.lower() == "http":
+            if not allow_local_http or host not in {"localhost", "127.0.0.1"}:
+                raise ConfiguracaoInvalida("HTTP só é permitido para loopback em ambiente de teste")
+        elif partes.scheme.lower() != "https" or not host:
+            raise ConfiguracaoInvalida("SITE_BASE_URL deve usar HTTPS, exceto loopback em teste")
+        if partes.path not in ("", "/") or partes.query or partes.fragment or partes.username or partes.password:
+            raise ConfiguracaoInvalida("SITE_BASE_URL deve conter somente a origem")
         if fase not in (0, 1, 2, 3):
             raise ConfiguracaoInvalida(f"fase inválida: {fase}")
+        if contract not in {"v1", "legacy"}:
+            raise ConfiguracaoInvalida("contrato do site inválido")
         self._base = base_url.rstrip("/")
         self._tokens = {"draft": token_draft or None, "publish": token_publish or None}
         self.fase, self.contract_version, self.dry_run = fase, str(contract_version), dry_run
+        self.contract = contract
+        self.articles_enabled = articles_enabled
         self._espera, self._timeout, self._max, self._base_espera = espera, timeout, max(1, max_tentativas), base_espera
         self._gerar_id = gerar_id
         self._http = cliente or httpx.Client(timeout=timeout)
@@ -298,14 +324,120 @@ class ClienteSite:
 
     # ---- escrita -------------------------------------------------------------------
 
-    def criar_receita(self, payload: dict | ReceitaV1, *, run_id: str, reduzir: Optional[Callable[[dict], dict]] = None) -> RespostaCriacao:
+    def criar_receita(
+        self, payload: dict | ReceitaV1, *, run_id: str,
+        idempotency_key: Optional[str] = None,
+        reduzir: Optional[Callable[[dict], dict]] = None,
+    ) -> RespostaCriacao:
+        if self.contract == "legacy":
+            return self._criar_receita_legada(
+                payload, idempotency_key=idempotency_key, run_id=run_id
+            )
         return self._criar("/api/recipes", "recipe", ReceitaV1, payload, run_id, reduzir)
 
+    def publicar_receita(self, slug: str) -> RespostaCriacao:
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+            raise ContratoInvalido([{"campo": "slug", "detalhe": "slug inválido"}])
+        token = self._tokens["publish"]
+        if self.fase < 1:
+            raise EscopoLocalInsuficiente("a Fase 0 não publica")
+        if not token:
+            raise EscopoLocalInsuficiente("falta o token de escopo publish (SITE_TOKEN_PUBLISH)")
+        chave = hashlib.sha256(f"publish|{slug}".encode("utf-8")).hexdigest()
+        resp, ids = self._requisitar(
+            "POST", f"/api/recipes/{slug}/publish", token=token, chave=chave
+        )
+        self._levantar(resp, ids)
+        try:
+            dados = resp.json()
+        except Exception:
+            raise ErroSite(
+                "resposta de publicação sem JSON válido",
+                http_status=resp.status_code,
+                request_id=ids[-1],
+            ) from None
+        if (
+            not isinstance(dados, dict)
+            or dados.get("id") is None
+            or dados.get("slug") != slug
+            or dados.get("status") != "published"
+        ):
+            raise ErroSite(
+                "API não confirmou publicação do rascunho",
+                http_status=resp.status_code,
+                request_id=ids[-1],
+            )
+        replay = resp.headers.get("idempotent-replay", "").lower() == "true"
+        return RespostaCriacao(
+            "repetido" if replay else "publicado", resp.status_code,
+            dados["id"], dados["slug"], dados["status"], dados.get("url"),
+            ids, len(ids),
+        )
+
     def criar_artigo(self, payload: dict | ArtigoV1, *, run_id: str, reduzir: Optional[Callable[[dict], dict]] = None) -> RespostaCriacao:
+        if not self.articles_enabled:
+            raise EndpointBloqueado(
+                "publicação de dicas/artigos bloqueada: POST /api/articles não está implantado",
+                codigo="article_endpoint_not_deployed",
+            )
         tipo = payload.type if isinstance(payload, ArtigoV1) else (payload or {}).get("type")
         if tipo not in ("technique", "tip", "feature"):
             raise ContratoInvalido([{"campo": "type", "detalhe": "técnica, dica ou matéria"}])
         return self._criar("/api/articles", tipo, ArtigoV1, payload, run_id, reduzir)
+
+    def _criar_receita_legada(
+        self, payload, *, idempotency_key: Optional[str], run_id: str
+    ) -> RespostaCriacao:
+        if isinstance(payload, ReceitaLegada):
+            validado = payload
+        else:
+            try:
+                validado = ReceitaLegada.model_validate(payload)
+            except ValidationError as exc:
+                raise ContratoInvalido(
+                    [{"campo": ".".join(map(str, e["loc"])), "detalhe": e["msg"]} for e in exc.errors()]
+                ) from None
+        token = self._token_para(validado.status)
+        corpo = validado.model_dump(mode="json", exclude_none=True)
+        chave = hashlib.sha256(
+            f"recipe|{idempotency_key or run_id}".encode("utf-8")
+        ).hexdigest()
+        if self.dry_run:
+            return RespostaCriacao(
+                "dry_run", payload=corpo,
+                cabecalhos={"Authorization": "Bearer ***", "Content-Type": "application/json",
+                            "Idempotency-Key": chave, "alvo": "POST /api/recipes (legacy)"},
+            )
+        try:
+            resp, ids = self._requisitar(
+                "POST", "/api/recipes", token=token, corpo=corpo, chave=chave
+            )
+        except ErroDeRede as exc:
+            raise ErroDeRede(
+                "resultado do envio incerto; a mesma chave idempotente pode ser reenviada",
+                codigo="legacy_outcome_uncertain",
+                request_id=exc.request_id,
+            ) from None
+        self._levantar(resp, ids)
+        try:
+            dados = resp.json()
+        except Exception:
+            raise ErroSite(
+                "resposta de criação sem JSON válido", http_status=resp.status_code, request_id=ids[-1]
+            ) from None
+        if not isinstance(dados, dict) or dados.get("id") is None or not dados.get("slug"):
+            raise ErroSite(
+                "resposta de criação sem identificador e slug", http_status=resp.status_code, request_id=ids[-1]
+            )
+        if validado.status == "published" and dados.get("status") != "published":
+            raise ErroSite(
+                "API não confirmou status published", http_status=resp.status_code, request_id=ids[-1]
+            )
+        replay = resp.headers.get("idempotent-replay", "").lower() == "true"
+        return RespostaCriacao(
+            "repetido" if replay else "criado", resp.status_code, dados.get("id"), dados.get("slug"),
+            dados.get("status"), dados.get("url"), ids, len(ids),
+        )
 
     def _criar(self, caminho, content_type, modelo, payload, run_id, reduzir) -> RespostaCriacao:
         try:
@@ -343,6 +475,23 @@ class ClienteSite:
             dados = resp.json()
         except Exception:
             raise ErroSite("resposta de criação sem JSON válido", http_status=resp.status_code, request_id=todos_ids[-1]) from None
+        if (
+            not isinstance(dados, dict)
+            or dados.get("id") is None
+            or not isinstance(dados.get("slug"), str)
+            or dados.get("status") not in {"draft", "processing", "published"}
+        ):
+            raise ErroSite(
+                "resposta de criação fora do contrato v1",
+                http_status=resp.status_code,
+                request_id=todos_ids[-1],
+            )
+        if validado.status == "published" and dados.get("status") != "published":
+            raise ErroSite(
+                "API não confirmou status published",
+                http_status=resp.status_code,
+                request_id=todos_ids[-1],
+            )
         replay = resp.headers.get("idempotent-replay", "").lower() == "true"
         return RespostaCriacao(
             "repetido" if replay else "criado", resp.status_code, dados.get("id"), dados.get("slug"),

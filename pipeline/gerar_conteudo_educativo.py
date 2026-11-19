@@ -87,6 +87,7 @@ class DependenciasDica:
     calendario: Optional[dict] = None
     tags_existentes: list[str] = field(default_factory=list)
     baixar: Optional[Callable[..., Any]] = None  # só para testes (download de imagem)
+    salvar_interno: Optional[Callable[[str, str, str, dict], Any]] = None
 
 
 @dataclass
@@ -243,6 +244,15 @@ def gerar_dica(
     except ContratoInvalido as exc:
         return falhar("rejected", "adaptador", "API-01", *[f'{e["campo"]}: {e["detalhe"]}' for e in exc.erros])
     r.payload, r.status_enviado = payload.model_dump(mode="json", exclude_none=True), status
+
+    if deps.salvar_interno is not None:
+        try:
+            deps.salvar_interno(run_id, "tip", pauta["topic_slug"], r.payload)
+        except Exception as exc:
+            return falhar("error", "armazenamento_interno", "ARMAZENAMENTO-ERRO", type(exc).__name__)
+        r.estado, r.etapa, r.status_enviado = "generated", "armazenamento_interno", "pending_site_api"
+        r.pendencias.append("PENDENTE: POST /api/articles não está disponível; conteúdo preservado internamente")
+        return r
 
     # ---- 8. envio
     try:

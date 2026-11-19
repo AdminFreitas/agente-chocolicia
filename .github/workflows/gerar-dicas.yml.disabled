@@ -1,0 +1,114 @@
+name: Arquivado - Gerar dica (Chocolícia)
+
+# Terças e sextas às 09h em São Paulo (UTC-3; o cron usa UTC).
+# Fica bloqueado até composição e persistência internas estarem prontas.
+# Não publica no site: o destino atual não tem POST /api/articles.
+on:
+  schedule:
+    - cron: "0 12 * * 2,5"
+  workflow_dispatch:
+    inputs:
+      assunto:
+        description: "Assunto da dica (automatico deixa o planejador escolher)"
+        type: choice
+        options:
+          - automatico
+          - preparo
+          - montagem-e-apresentacao
+          - ornamentacao
+          - equipamentos-uso
+          - equipamentos-compra
+          - negocios
+        default: automatico
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agente-chocolicia-gerar
+  cancel-in-progress: false
+
+jobs:
+  dica:
+    if: ${{ vars.AGENT_ENABLED == 'true' && vars.AGENT_DICAS_ENABLED == 'true' && vars.AGENT_INTERNAL_CONTENT_READY == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: [self-hosted, windows, x64, ollama]
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      AGENT_ENABLED: ${{ vars.AGENT_ENABLED }}
+      AGENT_ENV: development
+      AGENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
+      ASSUNTO: ${{ inputs.assunto || 'automatico' }}
+      DATABASE_URL_AGENTE: ${{ secrets.DATABASE_URL_AGENTE }}
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
+      LLM_MODEL_CREATION: ${{ vars.OLLAMA_CREATION_MODEL || vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
+      LLM_FAMILY_CREATION: ${{ vars.OLLAMA_CREATION_FAMILY }}
+      LLM_MODEL_REVIEW: ${{ vars.OLLAMA_REVIEW_MODEL }}
+      LLM_FAMILY_REVIEW: ${{ vars.OLLAMA_REVIEW_FAMILY }}
+      SEARCH_PROVIDER: brave
+      BRAVE_SEARCH_API_KEY: ${{ secrets.PESQUISA_API_KEY }}
+      PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      PEXELS_ENABLED: "true"
+      PIXABAY_ENABLED: "true"
+      SITE_ARTICLES_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependências
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Gerar e armazenar dica internamente
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:DATABASE_URL_AGENTE)) {
+            throw "Secret DATABASE_URL_AGENTE ausente para armazenamento interno."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:BRAVE_SEARCH_API_KEY)) {
+            throw "Secret PESQUISA_API_KEY ausente."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:PEXELS_API_KEY) -and
+              [string]::IsNullOrWhiteSpace($env:PIXABAY_API_KEY)) {
+            throw "Configure pelo menos um secret de imagens: PEXELS_API_KEY ou PIXABAY_API_KEY."
+          }
+          foreach ($name in @("LLM_MODEL_CREATION", "LLM_FAMILY_CREATION", "LLM_MODEL_REVIEW", "LLM_FAMILY_REVIEW")) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Configure a variável de modelo/família Ollama: $name."
+            }
+          }
+          if ($env:LLM_FAMILY_CREATION -eq $env:LLM_FAMILY_REVIEW) {
+            throw "O modelo revisor precisa pertencer a uma família diferente do gerador."
+          }
+          $cliArgs = @("rodar_agente.py", "--dica", "--dry-run")
+          if ($env:ASSUNTO -ne "automatico") {
+            $cliArgs += @("--assunto", $env:ASSUNTO)
+          }
+          New-Item -ItemType Directory -Force -Path output | Out-Null
+          python @cliArgs | Tee-Object -FilePath output\geracao-dica.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Resumo da execução
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path output\resumo-execucao.md) {
+            Get-Content output\resumo-execucao.md | Add-Content $env:GITHUB_STEP_SUMMARY
+          }

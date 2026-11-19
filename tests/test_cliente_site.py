@@ -36,10 +36,40 @@ def test_cabecalhos_e_corpo_de_um_rascunho():
     assert (r.situacao, r.http_status, r.id, r.slug, r.status, r.tentativas, r.request_ids) == ("criado", 201, 123, OK_201["slug"], "draft", 1, ["rid1"])
 
 
+def test_resposta_v1_sem_estado_e_rejeitada():
+    site = Site(resp(201, {"id": 123, "slug": OK_201["slug"]}))
+    with pytest.raises(CS.ErroSite, match="fora do contrato v1"):
+        cliente(site).criar_receita(payload(), run_id="run-1")
+
+
 def test_publicar_usa_o_token_de_escopo_publish():
     s = Site(resp(201, {**OK_201, "status": "published"})); c = cliente(s, fase=1)
     assert c.criar_receita(payload(status="published"), run_id="run-1").status == "published"
     assert s.posts()[0].headers["authorization"] == "Bearer TOKEN-PUBLISH-XYZ"
+
+
+def test_publicar_rascunho_existente_usa_endpoint_e_chave_estavel():
+    site = Site(resp(200, {"id": 8, "slug": "brigadeiro-cremoso", "status": "published"}))
+    client = cliente(site, fase=1)
+    result = client.publicar_receita("brigadeiro-cremoso")
+    request = site.posts()[0]
+    assert result.status == "published"
+    assert request.url.path == "/api/recipes/brigadeiro-cremoso/publish"
+    assert request.headers["authorization"] == "Bearer TOKEN-PUBLISH-XYZ"
+    assert request.headers["idempotency-key"] == hashlib.sha256(
+        b"publish|brigadeiro-cremoso"
+    ).hexdigest()
+
+
+def test_publicar_rascunho_sem_escopo_publish_nao_faz_rede():
+    site = Site(resp(200, {"id": 8, "slug": "brigadeiro-cremoso", "status": "published"}))
+    client = CS.ClienteSite(
+        "https://site.test", token_draft="TOKEN-DRAFT-XYZ", fase=1,
+        cliente=httpx.Client(transport=httpx.MockTransport(site)),
+    )
+    with pytest.raises(CS.EscopoLocalInsuficiente, match="publish"):
+        client.publicar_receita("brigadeiro-cremoso")
+    assert site.requisicoes == []
 
 
 def test_escopo_e_fase_sao_checados_antes_de_qualquer_rede():
@@ -61,6 +91,19 @@ def test_https_obrigatorio_e_fase_valida():
             CS.ClienteSite(url, token_draft="x")
     with pytest.raises(CS.ConfiguracaoInvalida):
         CS.ClienteSite("https://site.test", token_draft="x", fase=7)
+
+
+def test_http_local_so_em_loopback_e_bloqueio_de_producao():
+    with pytest.raises(CS.ConfiguracaoInvalida):
+        CS.ClienteSite("http://127.0.0.1:3000")
+    local = CS.ClienteSite("http://127.0.0.1:3000", allow_local_http=True, dry_run=True)
+    assert local.dry_run
+    with pytest.raises(CS.ConfiguracaoInvalida):
+        CS.ClienteSite("http://192.168.1.10:3000", allow_local_http=True)
+    with pytest.raises(CS.ConfiguracaoInvalida):
+        CS.ClienteSite("https://www.chocolicia.site")
+    with pytest.raises(CS.ConfiguracaoInvalida):
+        CS.ClienteSite("http://127.0.0.1:3000/receitas", allow_local_http=True)
 
 
 def test_replay_da_mesma_chave():
@@ -294,3 +337,48 @@ def test_criar_artigo():
         c.criar_artigo({**artigo(), "type": "noticia"}, run_id="r")
     with pytest.raises(CS.ContratoInvalido):
         c.criar_artigo({"title": "sem tipo"}, run_id="r")
+
+
+def test_artigos_bloqueados_por_padrao():
+    c = CS.ClienteSite("https://site.test", token_draft="TOKEN-DRAFT-XYZ")
+    with pytest.raises(CS.EndpointBloqueado, match="não está implantado"):
+        c.criar_artigo(artigo(), run_id="r")
+
+
+def test_receita_legada_envia_somente_categoria_e_nao_repete_timeout():
+    legado = {
+        "title": "Brigadeiro cremoso de colher",
+        "excerpt": "Um brigadeiro cremoso, simples de preparar e servido em pequenas porções.",
+        "category": "Brigadeiros e docinhos",
+        "coverImageUrl": "https://images.example.test/brigadeiro.jpg",
+        "coverImageAlt": "Brigadeiro cremoso servido em uma tigela",
+        "ingredients": [{"name": "Massa", "items": [
+            {"name": "leite condensado", "quantity": "395", "unit": "g"},
+        ]}],
+        "steps": [{"instruction": "Misture os ingredientes."}, {"instruction": "Cozinhe em fogo baixo."}],
+        "prepTimeMin": 10,
+        "cookTimeMin": 15,
+        "servings": 6,
+        "difficulty": "Fácil",
+        "status": "draft",
+    }
+    site = Site(resp(201, {"id": 8, "slug": "brigadeiro-cremoso", "status": "draft"}))
+    c = cliente(site, contract="legacy")
+    r = c.criar_receita(legado, run_id="legacy-run", idempotency_key="brigadeiro-cremoso")
+    req = site.posts()[0]
+    sent = corpo(req)
+    assert r.situacao == "criado" and req.url.path == "/api/recipes"
+    assert sent["category"] == "Brigadeiros e docinhos"
+    assert "subcategorySlug" not in sent and "cover" not in sent
+    expected_key = hashlib.sha256(b"recipe|brigadeiro-cremoso").hexdigest()
+    assert req.headers["idempotency-key"] == expected_key
+
+    timeout_site = Site(httpx.ReadTimeout("timeout"))
+    timeout_client = cliente(timeout_site, contract="legacy")
+    with pytest.raises(CS.ErroDeRede) as exc:
+        timeout_client.criar_receita(
+            legado, run_id="legacy-run", idempotency_key="brigadeiro-cremoso"
+        )
+    assert exc.value.codigo == "legacy_outcome_uncertain"
+    assert len(timeout_site.posts()) == 3
+    assert len({req.headers["idempotency-key"] for req in timeout_site.posts()}) == 1

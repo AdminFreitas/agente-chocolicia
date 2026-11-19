@@ -36,11 +36,11 @@ Como não há revisão humana nem teste prático das receitas, a segurança do p
 | Fase | Nível de risco | Publicação | Limite diário inicial | Entrada |
 | --- | --- | --- | --- | --- |
 | 0 - Sombra | `low` | Nenhuma (`draft`) | 3 execuções | Implantação concluída |
-| 1 | `low` | Automática | 1 receita | Critérios da Fase 0 (`08-VALIDACAO.md`, seção 10) |
+| 1 | `low` | Automática | 1 receita | Decisão de lançamento imediato registrada; verificações técnicas bloqueantes mantidas (`08-VALIDACAO.md`, seção 10) |
 | 2 | `low` e `medium` | Automática | 2 receitas | Critérios da Fase 1 |
 | 3 | `high`, por subcategoria | Automática | A definir | Critérios da Fase 2 mais bases de segurança curadas para cada família |
 
-- A fase em vigor é configuração do projeto (`AGENT_PHASE`), alterada por decisão registrada, nunca pelo agente.
+- A fase em vigor é configuração do projeto (`AGENT_PHASE`), alterada por decisão registrada, nunca pelo agente. A autorização de lançamento imediato remove somente a espera mínima da Fase 0; não configura a variável automaticamente nem substitui os controles técnicos.
 - O `agent_enabled` de cada subcategoria acompanha a fase (`04-ESTRUTURA-CONTEUDO.md`, seção 5.3).
 - O disjuntor global **rebaixa** a fase automaticamente (seção 9).
 - Artigos (dicas, técnicas e matérias) seguem a cadência de `config/cadencia.json`: valores iniciais de 2 dicas por semana, 1 técnica por semana e 1 matéria por quinzena, a partir da Fase 1, e sempre com validação mais rigorosa nas matérias (fontes obrigatórias).

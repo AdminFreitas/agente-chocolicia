@@ -29,6 +29,20 @@ def test_mapeamento_completo():
     assert not any(k in d for k in ("dificuldade", "autor", "aviso_leitor", "alertas_internos", "termos_busca_imagem", "prompt_imagem"))
 
 
+def test_payload_legado_usa_categoria_sem_subcategoria():
+    legado = A.montar_payload_receita_legada(
+        conteudo_editor(),
+        pauta={**PAUTA, "categoria_legada": "Bolos"},
+        ficha=ficha_aprovada(),
+        cover=COVER_STOCK,
+    )
+    d = legado.model_dump(mode="json", exclude_none=True)
+    assert d["category"] == "Bolos"
+    assert d["status"] == "draft"
+    assert d["subcategorySlug"] == "brigadeiros-e-docinhos"
+    assert d["coverImageUrl"] == COVER_STOCK["sourceImageUrl"]
+
+
 def test_status_padrao_draft_e_dica_extra_vai_para_tips_e_faq():
     assert payload().status == "draft"
     p = payload(conteudo=conteudo_editor(dica_extra="Use fogo baixo.", perguntas_frequentes=[{"pergunta": "Posso congelar?", "resposta": "Sim."}]))

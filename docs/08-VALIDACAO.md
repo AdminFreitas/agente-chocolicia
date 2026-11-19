@@ -318,13 +318,13 @@ A integração contínua bloqueia a mesclagem se qualquer teste falhar. A lista 
 
 ## 10. Critérios de promoção entre fases
 
-Valores iniciais, a calibrar com dados reais. Cada promoção é uma decisão registrada, com as métricas anexadas.
+Valores iniciais, a calibrar com dados reais. Cada promoção é uma decisão registrada, com as métricas anexadas. Para o lançamento inicial, o responsável dispensou apenas o prazo mínimo de 14 dias e o volume mínimo de 20 execuções da Fase 0. Nenhuma execução ou métrica é presumida: os controles técnicos abaixo continuam obrigatórios, e as promoções posteriores continuam sujeitas aos respectivos critérios.
 
 ### 10.1 Fase 0 para Fase 1
 
 | Critério | Meta inicial |
 | --- | --- |
-| Duração e volume | Pelo menos 14 dias corridos e 20 execuções válidas |
+| Decisão de lançamento | Autorização expressa para lançamento imediato; não exige prazo ou volume mínimo de Fase 0 |
 | Mutação | 100% das determinísticas e pelo menos 90% de M45 |
 | Golden set | Todas as pautas com o resultado esperado |
 | Aprovação pela validação | Pelo menos 70% das gerações das pautas válidas |

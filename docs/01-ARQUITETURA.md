@@ -187,7 +187,7 @@ Cada subcategoria tem `risk_level` (`low`, `medium`, `high`) e `agent_enabled`. 
 | 2 - Risco médio | Amplia as subcategorias | `low` e `medium` | 2 receitas |
 | 3 - Risco alto | Adiada. Só entra com métricas estáveis e bases de segurança curadas | `high` (por subcategoria) | A definir |
 
-A promoção entre fases depende de métricas automáticas (`08-VALIDACAO.md`, seção 10), registradas no histórico. Rebaixar de fase é imediato quando o disjuntor global dispara (`07-PUBLICACAO.md`).
+A entrada inicial na Fase 1 foi autorizada sem período mínimo de sombra ou quantidade mínima de execuções. Isso não dispensa as verificações técnicas bloqueantes, os controles de publicação nem a decisão explícita de configurar `AGENT_PHASE=1`. Promoções posteriores seguem as métricas e os critérios técnicos de `08-VALIDACAO.md`, seção 10. Rebaixar de fase é imediato quando o disjuntor global dispara (`07-PUBLICACAO.md`).
 
 ---
 

@@ -33,6 +33,22 @@ CREATE TABLE IF NOT EXISTS agent_publications (
   url TEXT,
   published_at TIMESTAMPTZ
 );
+CREATE TABLE IF NOT EXISTS agent_topic_claims (
+  content_type TEXT NOT NULL,
+  topic_slug TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY(content_type, topic_slug)
+);
+CREATE TABLE IF NOT EXISTS agent_internal_content (
+  run_id TEXT PRIMARY KEY,
+  content_type TEXT NOT NULL,
+  topic_slug TEXT NOT NULL,
+  status TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(content_type, topic_slug)
+);
 CREATE TABLE IF NOT EXISTS agent_cost_events (
   id BIGSERIAL PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES agent_runs(run_id),
@@ -45,6 +61,11 @@ CREATE TABLE IF NOT EXISTS agent_cost_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 """
+
+
+class DuplicateContent(RuntimeError):
+    pass
+
 
 class PostgresStore:
     def __init__(self, database_url: str):
@@ -96,6 +117,43 @@ class PostgresStore:
                 slug=EXCLUDED.slug,status=EXCLUDED.status,url=EXCLUDED.url,
                 published_at=EXCLUDED.published_at
             """), {"run":run_id,"remote":remote_id,"slug":slug,"status":status,"url":url})
+
+    def claim_topic(self, content_type: str, topic_slug: str, run_id: str) -> None:
+        with self.engine.begin() as conn:
+            row = conn.execute(text("""
+              INSERT INTO agent_topic_claims(content_type,topic_slug,run_id)
+              VALUES(:type,:slug,:run)
+              ON CONFLICT(content_type,topic_slug) DO NOTHING
+              RETURNING run_id
+            """), {"type":content_type,"slug":topic_slug,"run":run_id}).first()
+        if row is None:
+            raise DuplicateContent(f"topic_slug já utilizado: {topic_slug}")
+
+    def recent_topic_slugs(self, content_type: str, limit: int = 50) -> list[str]:
+        with self.engine.connect() as conn:
+            rows = conn.execute(text("""
+              SELECT topic_slug FROM agent_topic_claims
+              WHERE content_type=:type
+              ORDER BY claimed_at DESC
+              LIMIT :limit
+            """), {"type": content_type, "limit": limit}).fetchall()
+        return [row[0] for row in rows]
+
+    def save_internal_content(
+        self, run_id: str, content_type: str, topic_slug: str, payload: dict
+    ) -> None:
+        with self.engine.begin() as conn:
+            row = conn.execute(text("""
+              INSERT INTO agent_internal_content(run_id,content_type,topic_slug,status,payload)
+              VALUES(:run,:type,:slug,'pending_site_api',CAST(:payload AS jsonb))
+              ON CONFLICT DO NOTHING
+              RETURNING run_id
+            """), {
+                "run": run_id, "type": content_type, "slug": topic_slug,
+                "payload": json.dumps(payload, ensure_ascii=False),
+            }).first()
+        if row is None:
+            raise DuplicateContent(f"conteúdo interno já armazenado para topic_slug: {topic_slug}")
 
     def image_was_used(self, image_url: str) -> bool:
         with self.engine.connect() as conn:

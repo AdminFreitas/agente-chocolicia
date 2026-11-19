@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
 
 CONTRACT_VERSION = "1"
 PASTA_CONTRATOS = Path(__file__).resolve().parent.parent / "contracts"
@@ -170,6 +170,39 @@ class ReceitaV1(_Estrito):
         if len(set(self.diet)) != len(self.diet):
             raise ValueError("diet: valores repetidos")
         return self
+
+
+# Compatibilidade com o endpoint legado POST /api/recipes.
+class IngredienteLegado(_Estrito):
+    name: str = Field(min_length=1, max_length=180)
+    quantity: str = Field(min_length=1, max_length=80)
+    unit: str = Field(min_length=1, max_length=40)
+
+
+class SecaoIngredientesLegada(_Estrito):
+    name: str = Field(min_length=1, max_length=100)
+    items: list[IngredienteLegado] = Field(min_length=1, max_length=80)
+
+
+class PassoLegado(_Estrito):
+    instruction: str = Field(min_length=1, max_length=1200)
+
+
+class ReceitaLegada(_Estrito):
+    title: str = Field(min_length=5, max_length=180)
+    excerpt: str = Field(min_length=20, max_length=160)
+    category: str = Field(min_length=2, max_length=80)
+    categorySlug: Optional[str] = Field(default=None, min_length=1, max_length=120, pattern=SLUG_RE)
+    subcategorySlug: Optional[str] = Field(default=None, min_length=1, max_length=120, pattern=SLUG_RE)
+    coverImageUrl: AnyHttpUrl
+    coverImageAlt: str = Field(min_length=8, max_length=240)
+    ingredients: list[SecaoIngredientesLegada] = Field(min_length=1, max_length=20)
+    steps: list[PassoLegado] = Field(min_length=2, max_length=30)
+    prepTimeMin: int = Field(ge=1, le=1440)
+    cookTimeMin: int = Field(ge=0, le=1440)
+    servings: int = Field(ge=1, le=500)
+    difficulty: Literal["Fácil", "Média", "Difícil"]
+    status: Literal["draft", "published"] = "draft"
 
 
 # --------------------------------------------------------------------------

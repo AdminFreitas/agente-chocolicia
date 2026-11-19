@@ -1,0 +1,163 @@
+name: Chocolícia - gerar receitas
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      operacao:
+        description: Execução isolada; publicação exige Fase 1 e interruptor habilitado
+        type: choice
+        options:
+          - dry-run
+          - preview-draft
+          - publicar
+        default: dry-run
+        required: true
+      assunto:
+        description: Tema da receita; automatico escolhe um tema não usado
+        type: string
+        default: automatico
+      subcategoria:
+        description: Slug opcional de subcategoria ativa e permitida na fase atual
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chocolicia-receitas-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  receita:
+    if: >-
+      ${{
+        vars.AGENT_ENABLED == 'true' &&
+        (
+          (github.event_name == 'schedule' &&
+            vars.AGENT_PHASE == '1' &&
+            vars.AGENT_PUBLISHING_ENABLED == 'true' &&
+            github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+          (github.event_name == 'workflow_dispatch' &&
+            (inputs.operacao == 'dry-run' || inputs.operacao == 'preview-draft')) ||
+          (github.event_name == 'workflow_dispatch' &&
+            inputs.operacao == 'publicar' &&
+            vars.AGENT_PHASE == '1' &&
+            vars.AGENT_PUBLISHING_ENABLED == 'true' &&
+            github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+        )
+      }}
+    runs-on: [self-hosted, windows, x64, ollama]
+    environment: ${{ (github.event_name == 'schedule' || inputs.operacao == 'publicar') && 'production' || 'preview' }}
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      AGENT_ENABLED: ${{ vars.AGENT_ENABLED }}
+      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
+      AGENT_PUBLISHING_ENABLED: ${{ vars.AGENT_PUBLISHING_ENABLED || 'false' }}
+      AGENT_ENV: ${{ (github.event_name == 'schedule' || inputs.operacao == 'publicar') && 'production' || 'preview' }}
+      AGENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      CONTRACT_VERSION: "1"
+      SITE_CONTRACT: v1
+      TARGET: ${{ (github.event_name == 'schedule' || inputs.operacao == 'publicar') && 'production' || 'preview' }}
+      DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.operacao == 'dry-run') && 'true' || 'false' }}
+      SITE_BASE_URL: ${{ (github.event_name == 'schedule' || inputs.operacao == 'publicar') && 'https://www.chocolicia.site' || vars.SITE_BASE_URL_PREVIEW }}
+      SITE_TOKEN_DRAFT: ${{ (github.event_name == 'schedule' || inputs.operacao == 'publicar') && secrets.RECIPES_AGENT_TOKEN_DRAFT || secrets.SITE_TOKEN_DRAFT_PREVIEW }}
+      SITE_TOKEN_PUBLISH: ${{ (github.event_name == 'schedule' || inputs.operacao == 'publicar') && secrets.RECIPES_AGENT_TOKEN_PUBLISH || '' }}
+      DATABASE_URL_AGENTE: ${{ secrets.DATABASE_URL_AGENTE }}
+      ASSUNTO: ${{ inputs.assunto || vars.RECIPE_TOPIC || 'automatico' }}
+      RECIPE_SUBCATEGORY: ${{ inputs.subcategoria || '' }}
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
+      LLM_MODEL_CREATION: ${{ vars.OLLAMA_CREATION_MODEL || vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
+      LLM_FAMILY_CREATION: ${{ vars.OLLAMA_CREATION_FAMILY }}
+      LLM_MODEL_REVIEW: ${{ vars.OLLAMA_REVIEW_MODEL }}
+      LLM_FAMILY_REVIEW: ${{ vars.OLLAMA_REVIEW_FAMILY }}
+      LLM_MODEL_SEO: ${{ vars.OLLAMA_SEO_MODEL }}
+      LLM_FAMILY_SEO: ${{ vars.OLLAMA_SEO_FAMILY }}
+      LLM_MODEL_EXTRACTION: ${{ vars.OLLAMA_EXTRACTION_MODEL }}
+      LLM_FAMILY_EXTRACTION: ${{ vars.OLLAMA_EXTRACTION_FAMILY }}
+      LLM_MODEL_VISION: ${{ vars.OLLAMA_VISION_MODEL }}
+      LLM_FAMILY_VISION: ${{ vars.OLLAMA_VISION_FAMILY }}
+      LLM_REQUEST_TIMEOUT: "180"
+      SEARCH_PROVIDER: brave
+      BRAVE_SEARCH_API_KEY: ${{ secrets.PESQUISA_API_KEY }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+      PEXELS_ENABLED: "true"
+      PIXABAY_ENABLED: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependências
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validar configuração sem exibir credenciais
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($name in @("SITE_BASE_URL", "SITE_TOKEN_DRAFT", "DATABASE_URL_AGENTE", "BRAVE_SEARCH_API_KEY")) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Configuração obrigatória ausente: $name."
+            }
+          }
+          if ($env:TARGET -eq "production") {
+            foreach ($name in @("SITE_TOKEN_PUBLISH")) {
+              if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+                throw "Credencial obrigatória ausente para publicação: $name."
+              }
+            }
+            if ($env:AGENT_PHASE -ne "1" -or $env:AGENT_PUBLISHING_ENABLED -ne "true") {
+              throw "Publicação bloqueada: Fase 1 e interruptor AGENT_PUBLISHING_ENABLED=true são obrigatórios."
+            }
+          }
+          if ([string]::IsNullOrWhiteSpace($env:PEXELS_API_KEY) -and
+              [string]::IsNullOrWhiteSpace($env:PIXABAY_API_KEY)) {
+            throw "Configure pelo menos um provedor de imagem aprovado."
+          }
+
+      - name: Gerar, validar e enviar pelo pipeline v1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path output | Out-Null
+          $cliArgs = @("rodar_agente.py", "--receita", "--target", $env:TARGET, "--assunto", $env:ASSUNTO)
+          if (-not [string]::IsNullOrWhiteSpace($env:RECIPE_SUBCATEGORY)) {
+            $cliArgs += @("--subcategoria", $env:RECIPE_SUBCATEGORY)
+          }
+          python @cliArgs | Tee-Object -FilePath output\resultado-receita.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $resultado = Get-Content output\resultado-receita.json -Raw | ConvertFrom-Json
+          if ($env:DRY_RUN -eq "true" -and $resultado.estado -ne "generated") {
+            throw "Dry-run não concluiu geração e validação."
+          }
+          if ($env:TARGET -eq "preview" -and $env:DRY_RUN -eq "false" -and
+              ($resultado.estado -ne "sent" -or $resultado.publicacao.status -notin @("draft", "processing"))) {
+            throw "A API não confirmou o recebimento como draft/processing."
+          }
+          if ($env:TARGET -eq "production" -and
+              ($resultado.estado -ne "published" -or $resultado.publicacao.status -ne "published")) {
+            throw "A API não confirmou a publicação; a execução não será marcada como sucesso."
+          }
+          @(
+            "### Execução de receita"
+            "- Resultado: $($resultado.estado)"
+            "- Tema: $($resultado.pauta.tema)"
+            "- Slug: $($resultado.publicacao.slug)"
+            "- Estado remoto: $($resultado.publicacao.status)"
+          ) | Add-Content $env:GITHUB_STEP_SUMMARY

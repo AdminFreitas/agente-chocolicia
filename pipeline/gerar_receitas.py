@@ -53,7 +53,7 @@ def validar_por_ponto_unico(conteudo: dict, contexto: dict | None = None) -> Res
     return validar_conteudo(conteudo, contexto)
 
 
-def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: str, dry_run: bool = True, publicar: bool = False, validators_version: str = "pendente") -> ResultadoReceita:
+def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: str, dry_run: bool = True, publicar: bool = False, idempotency_key: str | None = None, validators_version: str = "pendente") -> ResultadoReceita:
     """Executa pesquisa, criação, validação, revisão, SEO, imagem, contrato e envio."""
     if not pauta.get("topic_slug") or not pauta.get("subcategoria"):
         return ResultadoReceita("rejected", "pauta", "PAUTA-01", motivos=["pauta sem topic_slug ou subcategoria"])
@@ -97,10 +97,22 @@ def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: 
     except ContratoInvalido as exc:
         return ResultadoReceita("rejected", "contrato", "API-01", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem, motivos=[str(exc)])
     try:
-        envio = deps.cliente.criar_receita(payload, run_id=run_id)
+        envio = deps.cliente.criar_receita(
+            payload, run_id=run_id, idempotency_key=idempotency_key
+        )
     except (ErroSite, ContratoInvalido) as exc:
         return ResultadoReceita("error", "envio", getattr(exc, "codigo", "API-01"), ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem, payload=payload.model_dump(mode="json"), motivos=[str(exc)])
-    estado = "generated" if envio.situacao == "dry_run" else ("rejected" if envio.situacao == "duplicada" else "sent")
-    if estado == "sent" and hasattr(deps.usadas, "marcar_usada"):
-        deps.usadas.marcar_usada(imagem.cover)
+    estado = (
+        "generated" if envio.situacao == "dry_run"
+        else "rejected" if envio.situacao == "duplicada"
+        else "published" if envio.status == "published"
+        else "sent"
+    )
+    if estado in {"sent", "published"} and imagem.meta and hasattr(deps.usadas, "registrar"):
+        deps.usadas.registrar(
+            imagem.cover["sourceImageUrl"],
+            imagem.meta["sha256"],
+            imagem.cover["provider"],
+            imagem.meta["provider_image_id"],
+        )
     return ResultadoReceita(estado, "envio", "DUPLICADA" if estado == "rejected" else None, ficha, criacao, revisao, seo_result, imagem, payload.model_dump(mode="json"), envio)

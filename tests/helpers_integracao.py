@@ -61,7 +61,7 @@ def cliente(site, fase=1, **kw):
     ids = iter(f"rid{i}" for i in range(1, 100))
     c = ClienteSite("https://site.test", token_draft="TOKEN-DRAFT-XYZ", token_publish="TOKEN-PUBLISH-XYZ", fase=fase,
                     cliente=httpx.Client(transport=httpx.MockTransport(site)), espera=esperas.append,
-                    gerar_id=lambda: next(ids), **kw)
+                    gerar_id=lambda: next(ids), articles_enabled=True, **kw)
     c.esperas = esperas
     return c
 

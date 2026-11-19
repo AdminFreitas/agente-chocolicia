@@ -87,7 +87,7 @@ class RespostaReceita(_Base):
     titulo: str = Field(min_length=5, max_length=180)
     descricao_curta: str = Field(min_length=20, max_length=160)
     introducao: str | None = None
-    subcategoria: str = Field(min_length=1)
+    subcategoria: str | None = Field(default=None, min_length=1)
     tempo_preparo_min: int = Field(ge=1, le=1440)
     tempo_cozimento_min: int | None = Field(default=None, ge=0, le=1440)
     tempo_descanso_min: int | None = Field(default=None, ge=0, le=10080)

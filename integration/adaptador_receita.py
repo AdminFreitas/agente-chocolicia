@@ -1,6 +1,6 @@
 """
-integration/adaptador_receita.py — Converte a receita do agente (português, docs/03 §6.2)
-para o payload v1 do site (inglês, docs/06 §6.2). Substitui agents/publisher.py.
+integration/adaptador_receita.py — Converte a receita do agente em português para o
+contrato v1 documentado ou para o contrato legado de receitas do site.
 
 Quem decide o quê (docs/03 §6.2; 04 §6.3):
 - O MODELO escreveu: título, descrição, introdução, ingredientes, passos, dica extra,
@@ -25,7 +25,7 @@ from pydantic import ValidationError
 
 from agents.pesquisador import VOCABULARIO_FLAGS
 from integration.cliente_site import ContratoInvalido
-from integration.contratos import ReceitaV1
+from integration.contratos import ReceitaLegada, ReceitaV1
 
 _PADRAO_SLUG = re.compile(r"[^a-z0-9]+")
 
@@ -160,6 +160,51 @@ def montar_payload_receita(
     }
     try:
         return ReceitaV1.model_validate({k: v for k, v in bruto.items() if v is not None})
+    except ValidationError as exc:
+        raise ContratoInvalido(
+            [{"campo": ".".join(map(str, e["loc"])), "detalhe": e["msg"]} for e in exc.errors()]
+        ) from None
+
+
+def montar_payload_receita_legada(
+    conteudo: dict, *, pauta: dict, ficha: dict, cover: Optional[dict], status: str = "draft"
+) -> ReceitaLegada:
+    """Monta somente os campos conhecidos do POST /api/recipes legado."""
+    if cover is None or cover.get("mode") != "stock":
+        raise ContratoInvalido([{"campo": "coverImageUrl", "detalhe": "o contrato legado exige URL de capa existente"}])
+    categoria = pauta.get("categoria_legada")
+    if not categoria:
+        raise ContratoInvalido([{"campo": "category", "detalhe": "categoria legada explícita é obrigatória"}])
+    bruto = {
+        "title": conteudo["titulo"],
+        "excerpt": conteudo["descricao_curta"],
+        "category": categoria,
+        "categorySlug": pauta.get("category_slug"),
+        "subcategorySlug": pauta.get("subcategoria"),
+        "coverImageUrl": cover.get("sourceImageUrl"),
+        "coverImageAlt": conteudo["texto_alt_imagem"],
+        "ingredients": [
+            {
+                "name": secao["nome"],
+                "items": [
+                    {"name": item["nome"], "quantity": item["quantidade"], "unit": item["unidade"]}
+                    for item in secao["itens"]
+                ],
+            }
+            for secao in conteudo["ingredientes"]
+        ],
+        "steps": [{"instruction": passo["instrucao"]} for passo in conteudo["modo_preparo"]],
+        "prepTimeMin": conteudo["tempo_preparo_min"],
+        "cookTimeMin": conteudo.get("tempo_cozimento_min") or 0,
+        "servings": conteudo["rendimento_porcoes"],
+        "difficulty": calcular_dificuldade(
+            len(conteudo["modo_preparo"]),
+            list(ficha.get("tecnica_flags") or []),
+        ),
+        "status": status,
+    }
+    try:
+        return ReceitaLegada.model_validate(bruto)
     except ValidationError as exc:
         raise ContratoInvalido(
             [{"campo": ".".join(map(str, e["loc"])), "detalhe": e["msg"]} for e in exc.errors()]
