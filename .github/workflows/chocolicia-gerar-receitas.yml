@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       operacao:
-        description: Gerar em dry-run ou enviar um rascunho ao preview
+        description: Gerar em dry-run ou enviar um draft ao preview
         type: choice
         options:
           - dry-run
@@ -14,9 +14,10 @@ on:
         default: dry-run
         required: true
       assunto:
-        description: Tema da receita; automatico escolhe um tema novo
+        description: Tema de receita; automatico escolhe uma pauta
         type: string
         default: automatico
+
 permissions:
   contents: read
 
@@ -35,42 +36,34 @@ jobs:
           github.event_name == 'workflow_dispatch'
         )
       }}
-    runs-on: [self-hosted, windows, x64, ollama]
+    runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 45
     env:
       CI: "true"
-      AGENT_ENABLED: ${{ vars.AGENT_ENABLED }}
-      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
+      PYTHON_DOTENV_DISABLED: "1"
+      AGENT_ENABLED: "true"
+      AGENT_PHASE: "0"
       AGENT_ENV: preview
       AGENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       TARGET: preview
       DRY_RUN: ${{ github.event_name == 'schedule' && 'true' || inputs.operacao == 'dry-run' && 'true' || 'false' }}
-      SITE_BASE_URL: ${{ vars.SITE_BASE_URL_PREVIEW }}
-      SITE_CONTRACT: legacy
-      RECIPES_AGENT_TOKEN: ${{ secrets.RECIPES_AGENT_TOKEN }}
-      DATABASE_URL_AGENTE: ${{ secrets.DATABASE_URL_AGENTE }}
+      CONTRACT_VERSION: "1"
+      SITE_CONTRACT: v1
+      SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
+      SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
+      AGENT_DATABASE_URL: ${{ secrets.AGENT_DATABASE_URL }}
+      AGENT_PUBLISHING_ENABLED: "false"
+      SITE_ARTICLES_ENABLED: "false"
       ASSUNTO: ${{ inputs.assunto || vars.RECIPE_TOPIC || 'automatico' }}
-      LLM_PROVIDER: ollama
-      OLLAMA_BASE_URL: http://127.0.0.1:11434
-      OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
-      LLM_MODEL_CREATION: ${{ vars.OLLAMA_CREATION_MODEL || vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
-      LLM_FAMILY_CREATION: ${{ vars.OLLAMA_CREATION_FAMILY }}
-      LLM_MODEL_REVIEW: ${{ vars.OLLAMA_REVIEW_MODEL }}
-      LLM_FAMILY_REVIEW: ${{ vars.OLLAMA_REVIEW_FAMILY }}
-      LLM_MODEL_SEO: ${{ vars.OLLAMA_SEO_MODEL }}
-      LLM_FAMILY_SEO: ${{ vars.OLLAMA_SEO_FAMILY }}
-      LLM_MODEL_EXTRACTION: ${{ vars.OLLAMA_EXTRACTION_MODEL }}
-      LLM_FAMILY_EXTRACTION: ${{ vars.OLLAMA_EXTRACTION_FAMILY }}
-      LLM_MODEL_VISION: ${{ vars.OLLAMA_VISION_MODEL }}
-      LLM_FAMILY_VISION: ${{ vars.OLLAMA_VISION_FAMILY }}
-      LLM_REQUEST_TIMEOUT: "180"
       SEARCH_PROVIDER: brave
-      BRAVE_SEARCH_API_KEY: ${{ secrets.PESQUISA_API_KEY }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
       PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-      PEXELS_ENABLED: "true"
-      PIXABAY_ENABLED: "true"
+      AGENT_IMAGE_GENERATION_ENABLED: "false"
 
     steps:
       - uses: actions/checkout@v4
@@ -83,57 +76,50 @@ jobs:
           cache: pip
 
       - name: Instalar dependências
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          python -m pip install -r requirements.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: python -m pip install -r requirements.txt
 
       - name: Validar configuração sem exibir credenciais
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          foreach ($name in @("SITE_BASE_URL", "BRAVE_SEARCH_API_KEY")) {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Configuração obrigatória ausente: $name."
-            }
-          }
-          if ($env:DRY_RUN -eq "false") {
-            foreach ($name in @("RECIPES_AGENT_TOKEN", "DATABASE_URL_AGENTE")) {
-              if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-                throw "$name é obrigatório para enviar um rascunho."
-              }
-            }
-          }
-          if ([string]::IsNullOrWhiteSpace($env:PEXELS_API_KEY) -and
-              [string]::IsNullOrWhiteSpace($env:PIXABAY_API_KEY)) {
-            throw "Configure pelo menos um provedor de imagem aprovado."
-          }
+          set -euo pipefail
+          for name in SITE_BASE_URL_PREVIEW BRAVE_SEARCH_API_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Configuração obrigatória ausente: ${name}"
+              exit 1
+            fi
+          done
+          if [[ "$DRY_RUN" == "false" ]]; then
+            for name in SITE_TOKEN_DRAFT_PREVIEW AGENT_DATABASE_URL; do
+              if [[ -z "${!name:-}" ]]; then
+                echo "::error::${name} é obrigatório para enviar um draft."
+                exit 1
+              fi
+            done
+          fi
 
       - name: Gerar, validar e opcionalmente enviar draft ao preview
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force -Path output | Out-Null
-          $cliArgs = @("rodar_agente.py", "--receita", "--target", "preview", "--assunto", $env:ASSUNTO)
-          python @cliArgs | Tee-Object -FilePath output\resultado-receita.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $resultado = Get-Content output\resultado-receita.json -Raw | ConvertFrom-Json
-          if ($env:DRY_RUN -eq "true" -and $resultado.estado -ne "generated") {
-            throw "Dry-run não concluiu geração e validação."
-          }
-          if ($env:DRY_RUN -eq "false" -and
-              ($resultado.estado -ne "sent" -or $resultado.publicacao.status -ne "draft")) {
-            throw "A API não confirmou o recebimento como draft."
-          }
-          $slug = $resultado.pauta.topic_slug
-          if ($resultado.publicacao.slug) { $slug = $resultado.publicacao.slug }
-          $status = $resultado.publicacao.status
-          if ($env:DRY_RUN -eq "true") { $status = "não enviado (dry-run)" }
-          @(
-            "### Execução de receita"
-            "- Resultado: $($resultado.estado)"
-            "- Tema: $($resultado.pauta.tema)"
-            "- Slug: $slug"
-            "- Estado remoto: $status"
-          ) | Add-Content $env:GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          mkdir -p output
+          python rodar_agente.py --receita --target preview --assunto "$ASSUNTO" \
+            > output/resultado-receita.json
+          python - <<'PY'
+          import json, os, sys
+          with open("output/resultado-receita.json", encoding="utf-8-sig") as file:
+              result = json.load(file)
+          dry_run = os.environ["DRY_RUN"] == "true"
+          expected = "generated" if dry_run else "sent"
+          status = "não enviado (dry-run)" if dry_run else (result.get("publicacao") or {}).get("status")
+          if result.get("estado") != expected or (not dry_run and status != "draft"):
+              raise SystemExit("A execução não confirmou geração válida ou recebimento como draft.")
+          topic = result.get("pauta") or {}
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(
+                  "### Execução de receita\n"
+                  f"- Resultado: {result.get('estado')}\n"
+                  f"- Tema: {topic.get('tema', 'não informado')}\n"
+                  f"- Slug: {(result.get('publicacao') or {}).get('slug') or topic.get('topic_slug', 'não informado')}\n"
+                  f"- Estado remoto: {status}\n"
+              )
+          PY

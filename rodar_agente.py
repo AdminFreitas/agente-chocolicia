@@ -62,6 +62,12 @@ def main(argv: list[str] | None = None) -> int:
             ensure_ascii=False,
         ))
         return 0
+    if is_ci and args.dica and os.environ.get("AGENT_DICAS_ENABLED", "false").lower() != "true":
+        print(json.dumps({
+            "estado": "desabilitado",
+            "motivo": "AGENT_DICAS_ENABLED=false em ambiente CI",
+        }, ensure_ascii=False))
+        return 2
     fase_env = os.environ.get("AGENT_PHASE", "0").strip()
     try:
         fase = int(fase_env)
@@ -99,9 +105,15 @@ def main(argv: list[str] | None = None) -> int:
             }, ensure_ascii=False))
             return 2
     tipo = "receita" if args.receita else "dica"
+    run_id = os.environ.get("AGENT_RUN_ID") or uuid.uuid4().hex
     try:
         services = build_services(
-            dry_run=args.dry_run, target=args.target,
+            dry_run=args.dry_run,
+            target=args.target,
+            tipo=tipo,
+            assunto=args.assunto,
+            subcategoria=args.subcategoria,
+            run_id=run_id,
         )
         fase = services["runtime"].settings.site_phase
         dependencias = services.get(f"dependencias_{tipo}")
@@ -114,19 +126,10 @@ def main(argv: list[str] | None = None) -> int:
                 + (f": {', '.join(faltantes)}" if faltantes else "")
             )
 
-        run_id = os.environ.get("AGENT_RUN_ID") or uuid.uuid4().hex
         if args.receita:
-            if services["runtime"].settings.site_contract == "legacy":
-                if args.subcategoria:
-                    raise ValueError(
-                        "o endpoint atual não expõe taxonomia ativa; "
-                        "subcategoria não pode ser verificada com segurança"
-                    )
-                classificacao = services["catalogo"].selecionar_categoria_legada()
-            else:
-                classificacao = services["catalogo"].selecionar_subcategoria(
-                    fase, slug=args.subcategoria
-                )
+            classificacao = services["catalogo"].selecionar_subcategoria(
+                fase, slug=args.subcategoria
+            )
             from agents.planejador import gerar_topic_slug
             from pipeline.gerar_receitas import gerar_receita
 
@@ -169,10 +172,7 @@ def main(argv: list[str] | None = None) -> int:
                         "motivos": ["topic_slug já reservado"],
                     }, ensure_ascii=False))
                     return 1
-                if (
-                    services["runtime"].settings.site_contract != "legacy"
-                    and services["catalogo"].existe(topic_slug, tema)
-                ):
+                if services["catalogo"].existe(topic_slug, tema):
                     store.update_run(
                         run_id, "rejected", "pauta",
                         {"rejection_code": "SIM-04", "motivo": "conteúdo já existe no site"},
@@ -209,10 +209,36 @@ def main(argv: list[str] | None = None) -> int:
         else:
             from pipeline.gerar_conteudo_educativo import gerar_dica
 
+            store = services["runtime"].store
+            if not args.dry_run and store is not None:
+                store.start_run(run_id, "tip", args.target)
+            publicadas_na_semana = None
+            if fase >= 1:
+                publicadas_na_semana = services["catalogo"].tip_coverage()
             resultado = gerar_dica(
                 dependencias, fase=fase, run_id=run_id,
                 publicar=args.target == "production" and not args.dry_run,
+                geracao_imagem_permitida=(
+                    os.environ.get("AGENT_IMAGE_GENERATION_ENABLED", "false").strip().lower() == "true"
+                ),
+                publicadas_na_semana=publicadas_na_semana,
+                validators_version="dica-code-v1",
             )
+            if not args.dry_run and store is not None:
+                details = {"codigo": resultado.codigo}
+                if resultado.envio is not None:
+                    details.update({
+                        "remote_id": resultado.envio.id,
+                        "slug": resultado.envio.slug,
+                        "status": resultado.envio.status,
+                        "url": resultado.envio.url,
+                    })
+                store.update_run(run_id, resultado.estado, resultado.etapa, details)
+                if resultado.envio is not None and resultado.envio.status in {"draft", "published"}:
+                    store.record_publication(
+                        run_id, str(resultado.envio.id), resultado.envio.slug or "",
+                        resultado.envio.status or "", resultado.envio.url,
+                    )
         saida = dict(resultado.__dict__)
         saida["pauta"] = pauta if args.receita else saida.get("pauta")
         if getattr(resultado, "envio", None) is not None:
@@ -230,12 +256,22 @@ def main(argv: list[str] | None = None) -> int:
         }
         return 0 if resultado.estado in estados_ok else 1
     except Exception as exc:
+        message = str(exc)
+        for name in (
+            "SITE_TOKEN_DRAFT", "SITE_TOKEN_DRAFT_PREVIEW", "SITE_TOKEN_PUBLISH",
+            "RECIPES_AGENT_TOKEN", "GEMINI_API_KEY", "GROQ_API_KEY",
+            "OPENROUTER_API_KEY", "BRAVE_SEARCH_API_KEY", "PEXELS_API_KEY",
+            "PIXABAY_API_KEY", "AGENT_DATABASE_URL", "DATABASE_URL_AGENTE",
+        ):
+            secret = os.environ.get(name, "")
+            if secret:
+                message = message.replace(secret, "[redacted]")
         print(json.dumps({
             "estado": "erro",
             "tipo": tipo,
             "etapa": "composicao",
             "erro": type(exc).__name__,
-            "motivo": str(exc),
+            "motivo": message,
         }, ensure_ascii=False))
         return 2
 

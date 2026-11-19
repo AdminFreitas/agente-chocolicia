@@ -139,6 +139,24 @@ class PostgresStore:
             """), {"type": content_type, "limit": limit}).fetchall()
         return [row[0] for row in rows]
 
+    def ja_existe(self, content_type: str, topic_slug: str) -> bool:
+        with self.engine.connect() as conn:
+            return conn.execute(text("""
+              SELECT 1 FROM agent_topic_claims
+              WHERE content_type=:type AND topic_slug=:slug
+              LIMIT 1
+            """), {"type": content_type, "slug": topic_slug}).first() is not None
+
+    def reservar_pauta(
+        self, content_type: str, topic_slug: str, tema: str, subcategoria: str | None,
+        run_id: str,
+    ) -> bool:
+        try:
+            self.claim_topic(content_type, topic_slug, run_id)
+        except DuplicateContent:
+            return False
+        return True
+
     def save_internal_content(
         self, run_id: str, content_type: str, topic_slug: str, payload: dict
     ) -> None:

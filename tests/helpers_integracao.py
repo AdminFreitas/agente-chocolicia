@@ -41,6 +41,8 @@ class Site:
     def __call__(self, req: httpx.Request):
         self.requisicoes.append(req)
         r = self.respostas.pop(0) if len(self.respostas) > 1 else self.respostas[0]
+        if callable(r):
+            return r(req)
         if isinstance(r, Exception):
             raise r
         return r

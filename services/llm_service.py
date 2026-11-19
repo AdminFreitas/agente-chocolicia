@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import time
 import unicodedata
@@ -93,10 +92,13 @@ def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list
         provedor = item.get("provedor")
         if not isinstance(provedor, str) or not provedor.strip():
             raise ModeloNaoAprovado(f"Modelo sem provedor na tarefa '{tarefa}'")
-        familia = item.get("familia", "")
+        familia = item.get("familia")
+        modelo = item.get("modelo")
+        if not isinstance(modelo, str) or not modelo.strip():
+            raise ModeloNaoAprovado(f"Modelo sem identificador aprovado na tarefa '{tarefa}'")
+        if not isinstance(familia, str) or not familia.strip():
+            raise ModeloNaoAprovado(f"Modelo sem família aprovada na tarefa '{tarefa}'")
         if familia_excluida is not None and familia == familia_excluida:
-            continue
-        if familia_excluida is not None and not familia:
             continue
         elegiveis.append(item)
     if not elegiveis:
@@ -104,6 +106,29 @@ def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list
             f"Nenhum modelo aprovado de família diferente para a tarefa '{tarefa}'"
         )
     return elegiveis
+
+
+def validar_configuracao_modelos(tarefas: list[str]) -> None:
+    """Falha antes de qualquer rede se faltar modelo, família independente ou credencial."""
+    modelos_por_tarefa = {}
+    for tarefa in tarefas:
+        modelos = _modelos_elegiveis(tarefa)
+        configurados = [
+            item for item in modelos
+            if _chave_provedor(str(item["provedor"])) and str(_chave_provedor(str(item["provedor"]))).strip()
+        ]
+        if not configurados:
+            raise ModeloNaoAprovado(
+                f"Nenhum modelo aprovado com credencial configurada para a tarefa '{tarefa}'"
+            )
+        modelos_por_tarefa[tarefa] = configurados
+    familias_criacao = {item["familia"] for item in modelos_por_tarefa["criacao"]}
+    if not any(
+        modelo["familia"] != familia
+        for familia in familias_criacao
+        for modelo in modelos_por_tarefa["revisao"]
+    ):
+        raise ModeloNaoAprovado("não há modelo de revisão aprovado em família independente")
 
 
 def _chave_provedor(provedor: str) -> str | None:
@@ -115,15 +140,7 @@ def _chave_provedor(provedor: str) -> str | None:
 
 
 def _modelo_resolvido(item: dict) -> str:
-    modelo = item.get("modelo", "").strip()
-    if modelo:
-        return modelo
-    padrao = {
-        "gemini": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
-        "groq": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        "openrouter": os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct"),
-    }
-    return padrao.get(item["provedor"], "")
+    return item.get("modelo", "").strip()
 
 
 def _chamar_gemini(prompt: str, modelo: str) -> str:

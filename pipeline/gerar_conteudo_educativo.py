@@ -168,15 +168,23 @@ def gerar_dica(
     minimos = verificar_minimos_dica(ficha)
     if minimos:
         return falhar("rejected", "pesquisa", minimos[0].split(":")[0], *minimos)
+    if deps.validador is None:
+        return falhar("rejected", "validacao", "VALIDADOR-PENDENTE", "não há validador de dicas configurado")
+    fontes_texto = ficha.pop("source_texts", [])
 
     # ---- 3. criação (erros do provedor abortam a execução, docs/07 §5)
     try:
-        cri = editor.criar_dica(ficha, pauta, gerar=deps.gerar, validador=deps.validador)
+        cri = editor.criar_dica(
+            ficha, pauta, gerar=deps.gerar, validador=deps.validador,
+            contexto_validacao={"fontes_texto": fontes_texto},
+        )
     except Exception as exc:
         return falhar("error", "criacao", "CRIACAO-ERRO", type(exc).__name__)
     r.criacao = cri
     if cri.status == "rejeitado":
         return falhar("rejected", "criacao", cri.rejection_code or "SCH-02", *[f"{f.id}: {f.detalhe}" for f in _bloqueantes(cri.falhas)])
+    if cri.status != "aprovado":
+        return falhar("rejected", "validacao", "VALIDACAO-PENDENTE", "a validação completa não aprovou o conteúdo")
     forcar_rascunho = False
     if cri.status == "pendente_validacao":
         pend.append("PENDENTE: validators (sem validador, a dica não é aprovada)")
@@ -214,7 +222,10 @@ def gerar_dica(
         return falhar("rejected", "seo", "IMG-08", f"SEO não aplicado ({s.motivo}); sem texto alternativo para a capa")
     conteudo = s.conteudo
     if deps.validador is not None:  # o SEO muda título e descrição: revalidar (docs/05 §13)
-        falhas = list(deps.validador.validar(conteudo, {"pauta": pauta, "ficha": ficha}))
+        falhas = list(deps.validador.validar(
+            conteudo,
+            {"pauta": pauta, "ficha": ficha, "fontes_texto": fontes_texto},
+        ))
         if _bloqueantes(falhas):
             return falhar("rejected", "seo", _bloqueantes(falhas)[0].id, *[f"{f.id}: {f.detalhe}" for f in _bloqueantes(falhas)])
     else:

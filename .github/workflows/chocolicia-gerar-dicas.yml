@@ -5,17 +5,26 @@ on:
     - cron: "0 12 * * 2,5"
   workflow_dispatch:
     inputs:
+      operacao:
+        description: Gerar em dry-run ou enviar um draft ao preview
+        type: choice
+        options:
+          - dry-run
+          - preview-draft
+        default: dry-run
+        required: true
       assunto:
         description: Assunto de docs/04 §6.7
         type: choice
         options:
+          - automatico
           - preparo
           - montagem-e-apresentacao
           - ornamentacao
           - equipamentos-uso
           - equipamentos-compra
           - negocios
-        default: preparo
+        default: automatico
         required: true
 
 permissions:
@@ -31,7 +40,6 @@ jobs:
       ${{
         vars.AGENT_ENABLED == 'true' &&
         vars.AGENT_DICAS_ENABLED == 'true' &&
-        vars.AGENT_INTERNAL_CONTENT_READY == 'true' &&
         vars.SITE_ARTICLES_ENABLED == 'true' &&
         (
           (github.event_name == 'schedule' &&
@@ -39,42 +47,35 @@ jobs:
           github.event_name == 'workflow_dispatch'
         )
       }}
-    runs-on: [self-hosted, windows, x64, ollama]
+    runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 45
     env:
       CI: "true"
-      AGENT_ENABLED: ${{ vars.AGENT_ENABLED }}
-      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
+      PYTHON_DOTENV_DISABLED: "1"
+      AGENT_ENABLED: "true"
+      AGENT_DICAS_ENABLED: "true"
+      AGENT_PHASE: "0"
       AGENT_ENV: preview
       AGENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       TARGET: preview
-      DRY_RUN: "true"
-      SITE_BASE_URL: ${{ vars.SITE_BASE_URL_PREVIEW }}
-      SITE_CONTRACT: legacy
-      SITE_ARTICLES_ENABLED: "false"
-      DATABASE_URL_AGENTE: ${{ secrets.DATABASE_URL_AGENTE }}
-      ASSUNTO: ${{ inputs.assunto || 'preparo' }}
-      LLM_PROVIDER: ollama
-      OLLAMA_BASE_URL: http://127.0.0.1:11434
-      OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
-      LLM_MODEL_CREATION: ${{ vars.OLLAMA_CREATION_MODEL || vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
-      LLM_FAMILY_CREATION: ${{ vars.OLLAMA_CREATION_FAMILY }}
-      LLM_MODEL_REVIEW: ${{ vars.OLLAMA_REVIEW_MODEL }}
-      LLM_FAMILY_REVIEW: ${{ vars.OLLAMA_REVIEW_FAMILY }}
-      LLM_MODEL_SEO: ${{ vars.OLLAMA_SEO_MODEL }}
-      LLM_FAMILY_SEO: ${{ vars.OLLAMA_SEO_FAMILY }}
-      LLM_MODEL_EXTRACTION: ${{ vars.OLLAMA_EXTRACTION_MODEL }}
-      LLM_FAMILY_EXTRACTION: ${{ vars.OLLAMA_EXTRACTION_FAMILY }}
-      LLM_MODEL_VISION: ${{ vars.OLLAMA_VISION_MODEL }}
-      LLM_FAMILY_VISION: ${{ vars.OLLAMA_VISION_FAMILY }}
-      LLM_REQUEST_TIMEOUT: "180"
+      DRY_RUN: ${{ github.event_name == 'schedule' && 'true' || inputs.operacao == 'dry-run' && 'true' || 'false' }}
+      CONTRACT_VERSION: "1"
+      SITE_CONTRACT: v1
+      SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
+      SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
+      AGENT_DATABASE_URL: ${{ secrets.AGENT_DATABASE_URL }}
+      AGENT_PUBLISHING_ENABLED: "false"
+      SITE_ARTICLES_ENABLED: "true"
+      ASSUNTO: ${{ inputs.assunto || 'automatico' }}
       SEARCH_PROVIDER: brave
-      BRAVE_SEARCH_API_KEY: ${{ secrets.PESQUISA_API_KEY }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
       PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-      PEXELS_ENABLED: "true"
-      PIXABAY_ENABLED: "true"
+      AGENT_IMAGE_GENERATION_ENABLED: "false"
 
     steps:
       - uses: actions/checkout@v4
@@ -87,37 +88,50 @@ jobs:
           cache: pip
 
       - name: Instalar dependências
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          python -m pip install -r requirements.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: python -m pip install -r requirements.txt
 
       - name: Validar configuração sem exibir credenciais
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          foreach ($name in @("SITE_BASE_URL", "BRAVE_SEARCH_API_KEY")) {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Configuração obrigatória ausente: $name."
-            }
-          }
+          set -euo pipefail
+          for name in SITE_BASE_URL_PREVIEW BRAVE_SEARCH_API_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Configuração obrigatória ausente: ${name}"
+              exit 1
+            fi
+          done
+          if [[ "$DRY_RUN" == "false" ]]; then
+            for name in SITE_TOKEN_DRAFT_PREVIEW AGENT_DATABASE_URL; do
+              if [[ -z "${!name:-}" ]]; then
+                echo "::error::${name} é obrigatório para enviar um draft."
+                exit 1
+              fi
+            done
+          fi
 
-      - name: Executar pipeline de dica em dry-run
-        shell: pwsh
+      - name: Gerar, validar e opcionalmente enviar draft ao preview
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force -Path output | Out-Null
-          python rodar_agente.py --dica --target preview --assunto $env:ASSUNTO |
-            Tee-Object -FilePath output\resultado-dica.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $resultado = Get-Content output\resultado-dica.json -Raw | ConvertFrom-Json
-          if ($resultado.estado -ne "generated") {
-            throw "Dry-run não concluiu geração e validação da dica."
-          }
-          @(
-            "### Execução de dica"
-            "- Resultado: $($resultado.estado)"
-            "- Assunto: $($resultado.pauta.assunto)"
-            "- Slug: $($resultado.pauta.topic_slug)"
-          ) | Add-Content $env:GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          mkdir -p output
+          python rodar_agente.py --dica --target preview --assunto "$ASSUNTO" \
+            > output/resultado-dica.json
+          python - <<'PY'
+          import json, os
+          with open("output/resultado-dica.json", encoding="utf-8-sig") as file:
+              result = json.load(file)
+          dry_run = os.environ["DRY_RUN"] == "true"
+          expected = "generated" if dry_run else "sent"
+          status = "não enviado (dry-run)" if dry_run else (result.get("publicacao") or {}).get("status")
+          if result.get("estado") != expected or (not dry_run and status != "draft"):
+              raise SystemExit("A execução não confirmou geração válida ou recebimento como draft.")
+          topic = result.get("pauta") or {}
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(
+                  "### Execução de dica\n"
+                  f"- Resultado: {result.get('estado')}\n"
+                  f"- Assunto: {topic.get('assunto', 'não informado')}\n"
+                  f"- Slug: {(result.get('publicacao') or {}).get('slug') or topic.get('topic_slug', 'não informado')}\n"
+                  f"- Estado remoto: {status}\n"
+              )
+          PY

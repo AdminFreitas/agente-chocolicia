@@ -19,9 +19,17 @@ Nada aqui acessa a rede.
 from __future__ import annotations
 
 import time
+import ipaddress
+import json
+import socket
+from html.parser import HTMLParser
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Protocol, Sequence
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
+from urllib.robotparser import RobotFileParser
+
+import httpx
 
 
 class BuscaIndisponivel(Exception):
@@ -120,17 +128,105 @@ class LeitorMock:
 
 
 class LeitorHTTP:
-    """
-    PENDENTE (02 §12): leitura real só depois do portão de termos de uso e
-    robots.txt de cada fonte. Deve respeitar robots.txt, limites e bloqueios e
-    identificar-se de forma honesta (02 §11).
-    """
+    """Leitor limitado às fontes com termos aprovados e respeitando robots.txt."""
 
-    def ler(self, url: str) -> str:  # pragma: no cover
-        raise NotImplementedError(
-            "PENDENTE: leitor HTTP depende do portão de termos de uso e "
-            "robots.txt das fontes (docs/02 §12)."
+    def __init__(
+        self,
+        fontes: Sequence[dict] | None = None,
+        *,
+        user_agent: str = "ChocoliciaRecipeAgent/1.0 (+https://www.chocolicia.site/agent)",
+        timeout: float = 10.0,
+        max_bytes: int = 2_000_000,
+        cliente: httpx.Client | None = None,
+    ):
+        if fontes is None:
+            path = Path(__file__).resolve().parents[1] / "config" / "fontes.json"
+            fontes = json.loads(path.read_text(encoding="utf-8")).get("fontes", [])
+        self._fontes = [
+            f for f in fontes
+            if f.get("ativa") is True and f.get("termos_aprovados") is True and f.get("dominio")
+        ]
+        self._user_agent = user_agent
+        self._max_bytes = max_bytes
+        self._client = cliente or httpx.Client(timeout=timeout, follow_redirects=False)
+        self._robots: dict[str, RobotFileParser] = {}
+
+    @staticmethod
+    def _public_host(host: str) -> bool:
+        try:
+            addresses = {ipaddress.ip_address(info[4][0]) for info in socket.getaddrinfo(host, None)}
+        except (OSError, ValueError):
+            return False
+        return bool(addresses) and all(ip.is_global for ip in addresses)
+
+    @staticmethod
+    def _plain_text(html: str) -> str:
+        class TextExtractor(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__(convert_charrefs=True)
+                self.parts: list[str] = []
+                self.hidden = 0
+
+            def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+                if tag in {"script", "style", "noscript", "svg", "template"}:
+                    self.hidden += 1
+
+            def handle_endtag(self, tag: str) -> None:
+                if tag in {"script", "style", "noscript", "svg", "template"} and self.hidden:
+                    self.hidden -= 1
+
+            def handle_data(self, data: str) -> None:
+                if not self.hidden and data.strip():
+                    self.parts.append(data.strip())
+
+        parser = TextExtractor()
+        parser.feed(html)
+        return " ".join(parser.parts)
+
+    def _approved_source(self, host: str) -> dict | None:
+        return next(
+            (f for f in self._fontes if dominio_permitido(host, [f["dominio"]])),
+            None,
         )
+
+    def _robots_for(self, origin: str, host: str) -> RobotFileParser:
+        if host not in self._robots:
+            robots_url = urljoin(origin, "/robots.txt")
+            response = self._client.get(robots_url, headers={"User-Agent": self._user_agent})
+            if response.status_code in {401, 403, 429} or response.status_code >= 500:
+                raise PermissionError("robots.txt indisponível ou bloqueado")
+            if response.is_redirect:
+                raise PermissionError("redirecionamento de robots.txt não permitido")
+            parser = RobotFileParser(robots_url)
+            parser.parse(response.text.splitlines() if response.status_code == 200 else [])
+            self._robots[host] = parser
+        return self._robots[host]
+
+    def ler(self, url: str) -> str:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if parsed.scheme != "https" or not host or parsed.username or parsed.password:
+            raise ValueError("URL de fonte deve usar HTTPS e não pode conter credenciais")
+        if self._approved_source(host) is None:
+            raise PermissionError("termos de uso da fonte ainda não foram aprovados")
+        if not self._public_host(host):
+            raise PermissionError("host de fonte não é público")
+        origin = f"https://{host}"
+        robots = self._robots_for(origin, host)
+        if not robots.can_fetch(self._user_agent, url):
+            raise PermissionError("robots.txt não permite a leitura da página")
+        response = self._client.get(
+            url,
+            headers={"User-Agent": self._user_agent, "Accept": "text/html"},
+        )
+        if response.is_redirect:
+            raise PermissionError("redirecionamento de página não permitido")
+        response.raise_for_status()
+        if "text/html" not in response.headers.get("content-type", "").lower():
+            raise ValueError("fonte não retornou HTML")
+        if len(response.content) > self._max_bytes:
+            raise ValueError("página excede o limite de bytes")
+        return self._plain_text(response.text)[:30_000]
 
 
 def criar_buscador(nome: str) -> Buscador:

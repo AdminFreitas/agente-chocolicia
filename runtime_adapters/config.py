@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 from dataclasses import dataclass
 from urllib.parse import urlparse
-from dotenv import load_dotenv
 
 class ConfigurationError(RuntimeError):
     pass
@@ -75,8 +74,9 @@ class Settings:
     max_pages: int
 
     @classmethod
-    def from_env(cls) -> "Settings":
-        load_dotenv(ROOT_DIR / ".env", override=False)
+    def from_env(cls, *, target: str = "preview") -> "Settings":
+        if target not in {"preview", "production"}:
+            raise ConfigurationError("target deve ser preview ou production")
         enabled = os.getenv("AGENT_ENABLED", "false").lower() == "true"
         env = (os.getenv("AGENT_ENV") or "development").strip().lower()
         if env not in {"development", "test", "preview", "production"}:
@@ -90,11 +90,14 @@ class Settings:
         phase = _int("AGENT_PHASE", 0, 0)
         if phase > 3:
             raise ConfigurationError("SITE_PHASE deve estar entre 0 e 3")
-        contract = (os.getenv("SITE_CONTRACT") or "legacy").strip().lower()
-        if contract != "legacy":
-            raise ConfigurationError("SITE_CONTRACT deve ser legacy; o destino atual não aceita contrato v1")
-        contract_version = "1"
-        base = os.getenv("SITE_BASE_URL", "").strip()
+        contract = (os.getenv("SITE_CONTRACT") or "v1").strip().lower()
+        if contract != "v1":
+            raise ConfigurationError("SITE_CONTRACT deve ser v1")
+        contract_version = (os.getenv("CONTRACT_VERSION") or "1").strip()
+        if contract_version != "1":
+            raise ConfigurationError("CONTRACT_VERSION deve ser 1")
+        base_name = "SITE_BASE_URL" if target == "production" else "SITE_BASE_URL_PREVIEW"
+        base = (os.getenv(base_name) or (os.getenv("SITE_BASE_URL") if target == "preview" else "") or "").strip()
         if not base and env == "test":
             base = "http://127.0.0.1:3000"
         if base:
@@ -105,22 +108,14 @@ class Settings:
         ):
             model = os.getenv(f"LLM_MODEL_{task.upper()}", "").strip()
             family = os.getenv(f"LLM_FAMILY_{task.upper()}", "").strip()
-            required_tasks = {"creation", "review", "seo", "extraction", "vision"}
             if provider == "ollama" and not model and task != "vision":
                 model = os.getenv("OLLAMA_MODEL", "").strip()
             if provider == "ollama" and not family:
                 family = "ollama-local"
-            if enabled and task in required_tasks and (not model or not family):
-                raise ConfigurationError(
-                    f"Defina LLM_MODEL_{task.upper()} e LLM_FAMILY_{task.upper()}; "
-                    "famílias não são inferidas automaticamente."
-                )
             if model and family:
                 models[task] = {"model": model, "family": family}
         if enabled and search == "brave" and not os.getenv("BRAVE_SEARCH_API_KEY"):
             raise ConfigurationError("BRAVE_SEARCH_API_KEY ausente")
-        if enabled and provider == "openai-compatible" and not os.getenv("LLM_API_KEY"):
-            raise ConfigurationError("LLM_API_KEY ausente")
         ollama_base = (
             os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_URL")
             or "http://127.0.0.1:11434"
@@ -143,8 +138,12 @@ class Settings:
             llm_base_url=llm_base_url,
             llm_models=models,
             site_base_url=base,
-            site_token_draft=os.getenv("RECIPES_AGENT_TOKEN", "").strip(),
-            site_token_publish="",
+            site_token_draft=(
+                os.getenv("SITE_TOKEN_DRAFT", "").strip()
+                if target == "production"
+                else (os.getenv("SITE_TOKEN_DRAFT_PREVIEW") or os.getenv("SITE_TOKEN_DRAFT", "")).strip()
+            ),
+            site_token_publish=os.getenv("SITE_TOKEN_PUBLISH", "").strip() if target == "production" else "",
             site_phase=phase,
             site_contract=contract,
             contract_version=contract_version,

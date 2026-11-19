@@ -3,7 +3,6 @@ import os
 from dataclasses import dataclass
 from .config import Settings, ConfigurationError
 from .search import BraveSearch
-from .llm import OpenAICompatibleGenerator, OpenAICompatibleVisionVerifier
 from .site import build_site_client
 from .catalog import SiteCatalog
 from .persistence import PostgresStore
@@ -20,17 +19,15 @@ class Runtime:
 
 
 def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
-    settings = Settings.from_env()
+    settings = Settings.from_env(target=target)
     is_ci = os.environ.get("CI", "false").lower() == "true"
     if is_ci and not settings.enabled:
         raise ConfigurationError("AGENT_ENABLED=false: execução bloqueada em CI")
     if target not in {"preview", "production"}:
         raise ConfigurationError(f"target não suportado: {target}")
+    if not settings.site_base_url:
+        raise ConfigurationError("SITE_BASE_URL_PREVIEW ausente")
     if target == "production":
-        if settings.site_contract == "legacy":
-            raise ConfigurationError(
-                "publicação bloqueada: o endpoint atual só permite criação como draft"
-            )
         if settings.environment != "production":
             raise ConfigurationError("target production exige AGENT_ENV=production")
         if settings.site_base_url != "https://www.chocolicia.site":
@@ -46,24 +43,23 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
         )
     elif settings.environment == "production":
         raise ConfigurationError("AGENT_ENV=production exige target=production")
-    if settings.site_contract != "legacy":
-        raise ConfigurationError("o destino atual exige SITE_CONTRACT=legacy")
     if settings.search_provider != "brave":
         raise ConfigurationError(
             f"SEARCH_PROVIDER não suportado: {settings.search_provider}"
         )
-    if settings.llm_provider not in {"openai-compatible", "ollama"}:
-        raise ConfigurationError(
-            f"LLM_PROVIDER não suportado: {settings.llm_provider}"
-        )
-    if not dry_run and target != "production" and not settings.site_token_draft:
-        raise ConfigurationError("RECIPES_AGENT_TOKEN ausente")
+    from services.llm_service import validar_configuracao_modelos
+
+    validar_configuracao_modelos(["criacao", "reparo", "revisao", "extracao", "seo"])
+    if not dry_run and not settings.site_token_draft:
+        raise ConfigurationError("SITE_TOKEN_DRAFT ausente")
     if not dry_run and not settings.database_url:
         raise ConfigurationError("DATABASE_URL_AGENTE ausente para bloqueio de duplicatas")
     store = None
-    if settings.database_url:
+    if settings.database_url and not dry_run:
         store = PostgresStore(settings.database_url)
         store.migrate()
+    elif settings.database_url:
+        store = PostgresStore(settings.database_url)
     catalog = SiteCatalog(
         settings.site_base_url, settings.site_token_draft,
         timeout=settings.request_timeout,
@@ -71,17 +67,20 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
     search = BraveSearch(
         settings.brave_api_key, timeout=settings.request_timeout
     )
-    generate = OpenAICompatibleGenerator(
-        settings.llm_api_key, settings.llm_base_url, settings.llm_models,
-        timeout=settings.llm_timeout, provider=settings.llm_provider,
-    )
-    vision_config = settings.llm_models.get("vision")
-    vision = OpenAICompatibleVisionVerifier(
-        settings.llm_api_key,
-        settings.llm_base_url,
-        vision_config["model"],
-        timeout=settings.llm_timeout,
-        provider=settings.llm_provider,
-    ) if vision_config else None
+    from services.llm_cliente import gerar_padrao
+
+    def generate(task: str, prompt: str, *, familia_excluida: str | None = None):
+        task_names = {
+            "creation": "criacao",
+            "repair": "reparo",
+            "review": "revisao",
+            "extraction": "extracao",
+        }
+        return gerar_padrao(
+            task_names.get(task, task),
+            prompt,
+            familia_excluida=familia_excluida,
+        )
+
     client = build_site_client(settings, dry_run=dry_run, target=target)
-    return Runtime(settings, [search], generate, client, catalog, store, vision)
+    return Runtime(settings, [search], generate, client, catalog, store, None)

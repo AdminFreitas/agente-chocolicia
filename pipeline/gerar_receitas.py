@@ -71,10 +71,25 @@ def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: 
     if not ficha or status_pesquisa != "aprovada_para_criacao":
         return ResultadoReceita("rejected", "pesquisa", "PESQUISA-GATE", ficha=ficha, motivos=["ficha não aprovada para criação"])
     validador = deps.validador or ValidadorPontoUnico()
+    fontes_texto = [
+        texto for _, texto in pesquisa.textos.itens()
+    ] if hasattr(pesquisa, "textos") else []
     try:
-        criacao = editor.criar_receita(ficha, pauta, gerar=deps.gerar, validador=validador)
+        criacao = editor.criar_receita(
+            ficha, pauta, gerar=deps.gerar, validador=validador,
+            contexto_validacao={"fontes_texto": fontes_texto, "catalogo": deps.catalogo},
+        )
     except Exception as exc:
         return ResultadoReceita("error", "criacao", "CRIACAO-ERRO", ficha=ficha, motivos=[type(exc).__name__])
+    finally:
+        if hasattr(pesquisa, "descartar_textos"):
+            pesquisa.descartar_textos()
+    if criacao.status != "aprovado":
+        return ResultadoReceita(
+            "rejected", "validacao", "VALIDACAO-PENDENTE",
+            ficha=ficha, criacao=criacao,
+            motivos=["a validação completa não aprovou o conteúdo"],
+        )
     if criacao.status == "rejeitado":
         return ResultadoReceita("rejected", "criacao", criacao.rejection_code, ficha=ficha, criacao=criacao)
     try:

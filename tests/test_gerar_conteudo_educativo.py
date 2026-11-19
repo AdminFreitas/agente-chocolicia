@@ -26,7 +26,7 @@ def publicavel(**kw):
 
 # ---- caminho feliz --------------------------------------------------------------------------
 
-def test_fase_0_envia_rascunho_com_pendencias_e_registra_a_imagem():
+def test_fase_0_envia_rascunho_validado_e_registra_a_imagem():
     d = montar(fase=0)
     r = gerar_dica(d, fase=0, run_id="run-1")
     assert (r.estado, r.etapa, r.status_enviado) == ("sent", "envio", "draft") and r.envio.situacao == "criado"
@@ -36,9 +36,9 @@ def test_fase_0_envia_rascunho_com_pendencias_e_registra_a_imagem():
     assert b["type"] == "tip" and b["tipTopic"] == "preparo" and b["subcategorySlug"] == "doces-de-colher" and b["status"] == "draft"
     assert b["title"] == "Ganache talhou? Veja como recuperar" and b["coverImageAlt"] == seo_dica()["texto_alt_imagem"]  # título e alt do SEO
     assert b["cover"]["mode"] == "stock" and b["generationMeta"]["topic_slug"] == "ganache-talhou-como-recuperar" and b["generationMeta"]["phase"] == 0
-    assert any("validators" in p for p in r.pendencias)
+    assert r.pendencias == []
     assert d.usadas_ref.usada_url(b["cover"]["sourceImageUrl"])  # só depois do sucesso do envio
-    assert r.pauta["assunto"] == "preparo" and r.criacao.status == "pendente_validacao" and r.revisao.aprovado and r.seo.aplicado
+    assert r.pauta["assunto"] == "preparo" and r.criacao.status == "aprovado" and r.revisao.aprovado and r.seo.aplicado
 
 
 def test_dry_run_nao_envia_nem_registra_imagem():
@@ -70,6 +70,9 @@ def test_publicar_exige_pedido_e_cadencia_verificada(mudanca):
 def test_qualquer_pendencia_deixa_em_rascunho(kw):
     d = publicavel(**kw) if "validador" not in kw else montar(**kw)
     r = rodar(d, publicar=True)
+    if kw.get("validador", "configured") is None:
+        assert r.estado == "rejected" and r.etapa == "validacao" and d.site.requisicoes == []
+        return
     assert r.estado == "sent" and r.status_enviado == "draft" and r.pendencias
 
 

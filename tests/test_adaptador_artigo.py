@@ -34,7 +34,7 @@ def test_mapeamento_da_dica():
     assert (gm["run_id"], gm["topic_slug"], gm["phase"], gm["validators_version"]) == ("run-7", PAUTA["topic_slug"], 1, "pendente")
     assert gm["sources"][0] == {"domain": "panelinha.com.br", "url": "https://panelinha.com.br/x", "date": "2026-11-12"}
     assert not any(k in d for k in ("alertas_internos", "prompt_imagem", "termos_busca_imagem")) and montar().status == "draft"
-    assert d["sources"] == []  # fontes de dica: só em generationMeta (06 §8 exige sources apenas em técnica e matéria)
+    assert d["sources"] == [{"name": "panelinha.com.br", "title": "panelinha.com.br", "url": "https://panelinha.com.br/x"}]
 
 
 def test_dica_sem_subcategoria():

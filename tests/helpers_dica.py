@@ -86,14 +86,19 @@ class ValidadorOk:
         return []
 
 
-def montar(*, itens=None, assuntos=None, site=None, fase=1, ficha=None, pesquisar="padrao", llm=None, validador=None,
+_VALIDADOR_PADRAO = object()
+
+
+def montar(*, itens=None, assuntos=None, site=None, fase=1, ficha=None, pesquisar="padrao", llm=None, validador=_VALIDADOR_PADRAO,
            visao="ok", candidatas=None, completo=True, **kw):
     """Dependências prontas. `completo=True` fornece bloqueios e lookup (senão o planejador registra pendências)."""
     itens = itens if itens is not None else [ItemFila(TEMA, subcategoria="doces-de-colher", assunto="preparo")]
     assuntos = assuntos if assuntos is not None else [AssuntoDica("preparo", "low", True), AssuntoDica("ornamentacao", "low", True),
                                                       AssuntoDica("negocios", "medium", True), AssuntoDica("equipamentos-compra", "medium", True)]
-    site = site or Site(resp(201, OK_201))
+    site = site or Site(lambda req: resp(201, {**OK_201, "status": json.loads(req.content)["status"]}))
     f = ficha if ficha is not None else ficha_dica()
+    if validador is _VALIDADOR_PADRAO:
+        validador = ValidadorOk({"HON-07", "HON-08"})
     usadas = ImagensUsadasMemoria()
     selector = ImageSelector([ProvedorFalso(padrao=candidatas if candidatas is not None else [candidata("1")])])
     deps = DependenciasDica(

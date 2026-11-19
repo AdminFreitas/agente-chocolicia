@@ -2,7 +2,7 @@ import pytest
 
 from services.busca_service import (
     BuscaIndisponivel, BuscadorMock, LeitorMock, Orcamento, OrcamentoEsgotado, ProvedorNaoDefinido,
-    ResultadoBusca, buscar_com_tentativas, criar_buscador, dominio_de, dominio_permitido,
+    ResultadoBusca, LeitorHTTP, buscar_com_tentativas, criar_buscador, dominio_de, dominio_permitido,
 )
 
 OK = ResultadoBusca("https://www.panelinha.com.br/x", "A")
@@ -65,3 +65,19 @@ def test_fabrica_e_leitor_mock():
     assert l.ler("u") == "texto"
     with pytest.raises(RuntimeError):
         l.ler("v")
+
+
+def test_leitor_http_exige_aprovacao_de_termos_antes_de_acessar_rede():
+    reader = LeitorHTTP(fontes=[{
+        "id": "panelinha", "dominio": "panelinha.com.br", "ativa": True,
+    }])
+    with pytest.raises(PermissionError, match="termos de uso"):
+        reader.ler("https://panelinha.com.br/receita")
+
+
+def test_leitor_http_recusa_host_privado():
+    reader = LeitorHTTP(fontes=[{
+        "id": "local", "dominio": "127.0.0.1", "ativa": True, "termos_aprovados": True,
+    }])
+    with pytest.raises(PermissionError, match="host de fonte não é público"):
+        reader.ler("https://127.0.0.1/receita")

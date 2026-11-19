@@ -134,8 +134,12 @@ def montar(paginas=None, extra_resultados=(), **kw):
 
 
 def rodar(buscador, leitor, extrator=None, analista=None, **kw):
+    cfg = kw.pop("cfg", json.loads(json.dumps(CFG)))
+    for fonte in cfg["fontes"]:
+        if fonte.get("ativa") and fonte.get("dominio"):
+            fonte["termos_aprovados"] = True
     return P.pesquisar_receita(PAUTA, buscadores=[buscador], leitor=leitor, analista=analista or analista_ok(),
-                               extrator=extrator or Extrator(), agora=AGORA, **kw)
+                               extrator=extrator or Extrator(), agora=AGORA, cfg=cfg, **kw)
 
 
 def test_fluxo_aprovado_sem_texto_bruto_nas_fichas():
@@ -224,3 +228,44 @@ def test_respeita_limite_de_paginas():
     r = rodar(b, l, orcamento=Orcamento(max_buscas=8, max_paginas=2))
     assert r.paginas_lidas == 2 and len(l.lidas) == 2
     assert r.status == "rejeitada"
+
+
+def test_pesquisa_de_dica_rejeita_sem_fontes_com_termos_aprovados():
+    buscador = BuscadorMock(respostas={"*": [ResultadoBusca(URLS["A"], "A")]})
+    ficha = P.pesquisar_dica(
+        {"tema": "Montagem de doces", "assunto": "montagem-e-apresentacao"},
+        buscadores=[buscador],
+        leitor=LeitorMock(),
+        extrator=lambda prompt: "{}",
+        cfg=CFG,
+    )
+    assert ficha["status"] == "erro"
+    assert buscador.chamadas == []
+
+
+def test_pesquisa_de_dica_usa_duas_fontes_e_mantem_texto_apenas_em_memoria():
+    cfg = json.loads(json.dumps(CFG))
+    for fonte in cfg["fontes"]:
+        if fonte.get("dominio") in {"panelinha.com.br", "receiteria.com.br"}:
+            fonte["termos_aprovados"] = True
+    urls = [
+        "https://panelinha.com.br/dica",
+        "https://receiteria.com.br/dica",
+    ]
+    buscador = BuscadorMock(respostas={
+        "*": [ResultadoBusca(urls[0], "Dica A"), ResultadoBusca(urls[1], "Dica B")]
+    })
+    leitor = LeitorMock({url: f"Conteúdo de referência {index}." for index, url in enumerate(urls)})
+    ficha = P.pesquisar_dica(
+        {"tema": "Montagem de doces", "assunto": "montagem-e-apresentacao"},
+        buscadores=[buscador],
+        leitor=leitor,
+        extrator=lambda prompt: json.dumps({
+            "facts": ["Uma apresentação organizada facilita servir os doces."],
+            "alertas_internos": [],
+        }),
+        cfg=cfg,
+    )
+    assert ficha["status"] == "aprovada_para_criacao"
+    assert ficha["fontes_consultadas"] == 2
+    assert len(ficha["source_texts"]) == 2

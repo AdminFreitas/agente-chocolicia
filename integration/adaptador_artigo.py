@@ -62,6 +62,14 @@ def montar_payload_dica(
         "tipTopic": pauta["assunto"],
         "bodyMd": conteudo["corpo"],
         "structured": {"direct_answer": conteudo["resposta_direta"]},
+        "sources": [
+            {
+                "name": str(ref.get("fonte") or ref["dominio"])[:200],
+                "title": str(ref.get("titulo_pagina") or ref["dominio"])[:300],
+                "url": ref["url"],
+            }
+            for ref in ficha.get("referencias_registro", [])
+        ],
         "tags": tags[:12],
         "relatedTopics": list(conteudo.get("temas_relacionados") or []),
         "cover": cover,

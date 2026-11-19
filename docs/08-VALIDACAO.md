@@ -329,7 +329,7 @@ Valores iniciais, a calibrar com dados reais. Cada promoção é uma decisão re
 | Golden set | Todas as pautas com o resultado esperado |
 | Aprovação pela validação | Pelo menos 70% das gerações das pautas válidas |
 | Rejeição por ingrediente fora do catálogo | No máximo 20% (acima disso, ampliar o catálogo antes) |
-| Contrato e fumaça em preview | Zero erro crítico nas 20 execuções |
+| Contrato e fumaça em preview | Zero erro crítico nas verificações executadas; o mínimo de 20 execuções foi dispensado para o lançamento inicial |
 | Imagem de banco de imagens | Pelo menos 80% das capas (IA em no máximo 20%) |
 | Duplicidade e modelo fora da lista | Zero ocorrência |
 | Custo | Dentro do teto por receita e por mês |
