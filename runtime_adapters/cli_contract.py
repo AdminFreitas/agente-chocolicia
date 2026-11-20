@@ -30,6 +30,7 @@ def build_services(
     from pipeline.gerar_receitas import DependenciasReceita, ValidadorPontoUnico
     from services.busca_service import LeitorHTTP
     from services.image_providers import ImageSelector, ImagensUsadasMemoria, SemVisao
+    from services.image_generation import gerar_imagem
     cfg_fontes = carregar_fontes()
     leitor = LeitorHTTP(fontes=cfg_fontes["fontes"], timeout=runtime.settings.request_timeout)
 
@@ -52,6 +53,7 @@ def build_services(
         usadas=runtime.store or ImagensUsadasMemoria(),
         visao=getattr(runtime, "vision", None) or SemVisao(),
         validador=ValidadorPontoUnico(),
+        gerar_imagem=gerar_imagem if getattr(runtime.settings, "image_generation_enabled", False) else None,
     )
     result = {
         "runtime": runtime,
@@ -168,6 +170,7 @@ def build_services(
         conteudo_existente=None if dry_run else runtime.catalog,
         bloqueios=BloqueiosMemoria(bloqueios),
         calendario=carregar_calendario(),
+        gerar_imagem=gerar_imagem if getattr(runtime.settings, "image_generation_enabled", False) else None,
     )
     result["dependencias_dica"] = deps_dica
     result["assunto_selecionado"] = assunto_slug

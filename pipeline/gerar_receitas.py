@@ -22,6 +22,7 @@ class DependenciasReceita:
     usadas: Any
     visao: Any
     baixar: Callable[..., Any] | None = None
+    gerar_imagem: Callable[[str], Any] | None = None
     validador: Any | None = None
     tags_existentes: list[str] = field(default_factory=list)
 
@@ -109,14 +110,32 @@ def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: 
     imagem = escolher_capa(conteudo, usadas=deps.usadas, visao=deps.visao, selector=deps.selector, **extras)
     if imagem.cover is None:
         return ResultadoReceita("rejected", "imagem", "IMG-07", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem)
+    if getattr(imagem, "status", None) == "generate" and getattr(imagem, "conteudo", None) is None and deps.gerar_imagem is not None:
+        try:
+            gerada = deps.gerar_imagem(imagem.cover.get("imagePrompt", conteudo["titulo"]))
+            imagem.conteudo = gerada.conteudo
+            imagem.meta.update({"mime": gerada.mime, "sha256": gerada.sha256, "provider": "agent-image", "provider_image_id": gerada.sha256})
+        except Exception as exc:
+            return ResultadoReceita("error", "geracao_imagem", "IMG-GENERATE", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem, motivos=[str(exc)])
     status = "published" if publicar and not dry_run and fase >= 1 else "draft"
+    cover_image_url = None
+    if getattr(deps.cliente, "contract", "v1") != "legacy":
+        imagem_bytes = getattr(imagem, "conteudo", None)
+        if isinstance(imagem_bytes, (bytes, bytearray)) and getattr(deps.cliente, "upload_images", False) and hasattr(deps.cliente, "upload_imagem"):
+            try:
+                cover_image_url = deps.cliente.upload_imagem(
+                    bytes(imagem_bytes), content_type=(imagem.meta or {}).get("mime", "image/jpeg"),
+                    alt=conteudo["texto_alt_imagem"], nome=f"{criacao.conteudo['titulo']}.jpg",
+                )
+            except Exception as exc:
+                return ResultadoReceita("error", "upload_imagem", "IMG-UPLOAD", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem, motivos=[str(exc)])
     try:
         if getattr(deps.cliente, "contract", "v1") == "legacy":
             payload = montar_payload_receita_legada(
                 conteudo, pauta=pauta, ficha=ficha, cover=imagem.cover, status=status
             )
         else:
-            payload = montar_payload_receita(conteudo, pauta=pauta, ficha=ficha, cover=imagem.cover, run_id=run_id, fase=fase, modelo=criacao.modelo, prompt_version=criacao.prompt_version, catalogo=deps.catalogo, status=status, validators_version=validators_version)
+            payload = montar_payload_receita(conteudo, pauta=pauta, ficha=ficha, cover=imagem.cover, run_id=run_id, fase=fase, modelo=criacao.modelo, prompt_version=criacao.prompt_version, catalogo=deps.catalogo, status=status, validators_version=validators_version, cover_image_url=cover_image_url)
     except ContratoInvalido as exc:
         return ResultadoReceita("rejected", "contrato", "API-01", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem, motivos=[str(exc)])
     try:
@@ -128,7 +147,7 @@ def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: 
     estado = (
         "generated" if envio.situacao == "dry_run"
         else "rejected" if envio.situacao == "duplicada"
-        else "published" if envio.status == "published"
+        else "published" if getattr(envio, "status", None) == "published"
         else "sent"
     )
     if estado in {"sent", "published"} and imagem.meta and hasattr(deps.usadas, "registrar"):

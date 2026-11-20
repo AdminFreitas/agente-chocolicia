@@ -68,6 +68,7 @@ class Settings:
     site_contract: str
     contract_version: str
     site_articles_enabled: bool
+    image_generation_enabled: bool
     request_timeout: float
     llm_timeout: float
     max_searches: int
@@ -148,6 +149,7 @@ class Settings:
             site_contract=contract,
             contract_version=contract_version,
             site_articles_enabled=os.getenv("SITE_ARTICLES_ENABLED", "false").lower() == "true",
+            image_generation_enabled=os.getenv("AGENT_IMAGE_GENERATION_ENABLED", "false").lower() == "true",
             request_timeout=float(os.getenv("AGENT_REQUEST_TIMEOUT") or "30"),
             llm_timeout=float(os.getenv("LLM_REQUEST_TIMEOUT") or ("180" if provider == "ollama" else "90")),
             max_searches=_int("SEARCH_MAX_QUERIES", 8),

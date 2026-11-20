@@ -6,12 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       operacao:
-        description: Gerar em dry-run ou enviar um draft ao preview
+        description: Gerar em dry-run ou publicar automaticamente
         type: choice
         options:
-          - dry-run
-          - preview-draft
-        default: dry-run
+          - publish
+        default: publish
         required: true
       assunto:
         description: Assunto de docs/04 §6.7
@@ -48,24 +47,25 @@ jobs:
         )
       }}
     runs-on: ubuntu-latest
-    environment: preview
+    environment: production
     timeout-minutes: 45
     env:
       CI: "true"
       PYTHON_DOTENV_DISABLED: "1"
       AGENT_ENABLED: "true"
       AGENT_DICAS_ENABLED: "true"
-      AGENT_PHASE: "0"
-      AGENT_ENV: preview
+      AGENT_PHASE: "1"
+      AGENT_ENV: production
       AGENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-      TARGET: preview
-      DRY_RUN: ${{ github.event_name == 'schedule' && 'true' || inputs.operacao == 'dry-run' && 'true' || 'false' }}
+      TARGET: production
+      DRY_RUN: "false"
       CONTRACT_VERSION: "1"
       SITE_CONTRACT: v1
-      SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
-      SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
+      SITE_BASE_URL: ${{ vars.SITE_BASE_URL }}
+      SITE_TOKEN_DRAFT: ${{ secrets.SITE_TOKEN_DRAFT }}
+      SITE_TOKEN_PUBLISH: ${{ secrets.SITE_TOKEN_PUBLISH }}
       AGENT_DATABASE_URL: ${{ secrets.AGENT_DATABASE_URL }}
-      AGENT_PUBLISHING_ENABLED: "false"
+      AGENT_PUBLISHING_ENABLED: "true"
       SITE_ARTICLES_ENABLED: "true"
       ASSUNTO: ${{ inputs.assunto || 'automatico' }}
       SEARCH_PROVIDER: brave
@@ -75,7 +75,10 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
       PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-      AGENT_IMAGE_GENERATION_ENABLED: "false"
+      AGENT_IMAGE_GENERATION_ENABLED: "true"
+      IMAGE_API_KEY: ${{ secrets.IMAGE_API_KEY }}
+      IMAGE_API_BASE_URL: ${{ vars.IMAGE_API_BASE_URL || 'https://api.openai.com/v1' }}
+      IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'gpt-image-1' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -94,37 +97,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in SITE_BASE_URL_PREVIEW BRAVE_SEARCH_API_KEY; do
+          for name in SITE_BASE_URL BRAVE_SEARCH_API_KEY; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Configuração obrigatória ausente: ${name}"
               exit 1
             fi
           done
           if [[ "$DRY_RUN" == "false" ]]; then
-            for name in SITE_TOKEN_DRAFT_PREVIEW AGENT_DATABASE_URL; do
+            for name in SITE_TOKEN_DRAFT SITE_TOKEN_PUBLISH AGENT_DATABASE_URL; do
               if [[ -z "${!name:-}" ]]; then
-                echo "::error::${name} é obrigatório para enviar um draft."
+              echo "::error::${name} é obrigatório para publicar."
                 exit 1
               fi
             done
           fi
 
-      - name: Gerar, validar e opcionalmente enviar draft ao preview
+      - name: Gerar, validar e publicar automaticamente
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p output
-          python rodar_agente.py --dica --target preview --assunto "$ASSUNTO" \
+          python rodar_agente.py --dica --target production --assunto "$ASSUNTO" \
             > output/resultado-dica.json
           python - <<'PY'
           import json, os
           with open("output/resultado-dica.json", encoding="utf-8-sig") as file:
               result = json.load(file)
           dry_run = os.environ["DRY_RUN"] == "true"
-          expected = "generated" if dry_run else "sent"
+          expected = "generated" if dry_run else "published"
           status = "não enviado (dry-run)" if dry_run else (result.get("publicacao") or {}).get("status")
-          if result.get("estado") != expected or (not dry_run and status != "draft"):
-              raise SystemExit("A execução não confirmou geração válida ou recebimento como draft.")
+          if result.get("estado") != expected or (not dry_run and status != "published"):
+              raise SystemExit("A execução não confirmou geração válida ou publicação.")
           topic = result.get("pauta") or {}
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write(

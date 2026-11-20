@@ -132,6 +132,7 @@ class ReceitaV1(_Estrito):
     title: str = Field(min_length=5, max_length=180)
     slug: Optional[str] = Field(default=None, min_length=3, max_length=180, pattern=SLUG_RE)
     excerpt: str = Field(min_length=20, max_length=160)
+    category: Optional[str] = Field(default=None, min_length=2, max_length=80)
     intro: Optional[str] = Field(default=None, max_length=2000)  # limite da doc: não informado
     subcategorySlug: str = Field(min_length=1, max_length=120, pattern=SLUG_RE)
     secondarySubcategorySlugs: list[str] = Field(default_factory=list, max_length=2)
@@ -151,6 +152,7 @@ class ReceitaV1(_Estrito):
     collections: list[str] = Field(default_factory=list)
     diet: list[str] = Field(default_factory=list)
     cover: Cover
+    coverImageUrl: Optional[AnyHttpUrl] = None
     coverImageAlt: str = Field(min_length=8, max_length=240)
     status: Literal["draft", "published"] = "draft"  # D-06: o padrão é draft
     aiModel: str = Field(min_length=1, max_length=120)
@@ -229,6 +231,7 @@ class ArtigoV1(_Estrito):
     tags: list[str] = Field(default_factory=list, max_length=12)
     relatedTopics: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(default_factory=list, max_length=6)
     cover: Cover
+    coverImageUrl: Optional[AnyHttpUrl] = None
     coverImageAlt: str = Field(min_length=8, max_length=240)
     status: Literal["draft", "published"] = "draft"
     aiModel: str = Field(min_length=1, max_length=120)

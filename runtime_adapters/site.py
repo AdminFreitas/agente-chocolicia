@@ -26,4 +26,5 @@ def build_site_client(settings: Settings, *, dry_run: bool, target: str = "previ
         allow_production=production,
         articles_enabled=settings.site_articles_enabled,
         contract=settings.site_contract,
+        upload_images=not dry_run,
     )

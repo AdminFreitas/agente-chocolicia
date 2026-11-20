@@ -32,6 +32,7 @@ def montar_payload_dica(
     prompt_version: str,
     status: str = "draft",
     validators_version: str = "pendente",
+    cover_image_url: Optional[str] = None,
 ) -> ArtigoV1:
     if cover is None:
         raise ContratoInvalido([{"campo": "cover", "detalhe": "sem capa (IMG-07: geração indisponível)"}])
@@ -73,6 +74,7 @@ def montar_payload_dica(
         "tags": tags[:12],
         "relatedTopics": list(conteudo.get("temas_relacionados") or []),
         "cover": cover,
+        "coverImageUrl": cover_image_url,
         "coverImageAlt": alt,
         "status": status,
         "aiModel": modelo_ia,

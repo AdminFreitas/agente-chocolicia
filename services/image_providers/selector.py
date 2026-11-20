@@ -130,6 +130,7 @@ class ResultadoImagem:
     status: str  # "stock" | "generate" | "sem_imagem"
     cover: Optional[dict] = None  # payload do site (docs/06 §7.1/§7.2)
     meta: dict = field(default_factory=dict)  # dados internos (id, largura, hash...). Não vão no cover.
+    conteudo: bytes | None = field(default=None, repr=False)  # bytes transitórios para upload; nunca entram no payload
     rejeitadas: list[dict] = field(default_factory=list)
     pendencias: list[str] = field(default_factory=list)
     buscas: int = 0
@@ -289,7 +290,8 @@ class ImageSelector:
                         "mime": img.mime, "search_query": termo, "license_url": c.license_url,
                         "author_url": c.photographer_url, "visao": v.observacao,
                     }
-                    return res  # os bytes da imagem não saem daqui
+                    res.conteudo = img.conteudo
+                    return res  # os bytes ficam apenas no resultado transitório
 
         # Nenhuma candidata utilizável (IMG-07): geração por IA, se o teto permitir.
         if geracao_permitida:

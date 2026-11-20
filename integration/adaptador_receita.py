@@ -82,6 +82,7 @@ def montar_payload_receita(
     storage_notes: Optional[str] = None,
     colecoes: Sequence[str] = (),
     validators_version: str = "pendente",
+    cover_image_url: Optional[str] = None,
 ) -> ReceitaV1:
     if cover is None:
         raise ContratoInvalido([{"campo": "cover", "detalhe": "sem capa (IMG-07: geração indisponível)"}])
@@ -124,6 +125,7 @@ def montar_payload_receita(
         "title": conteudo["titulo"],
         "slug": slugificar(conteudo["titulo"], 180),
         "excerpt": conteudo["descricao_curta"],
+        "category": pauta.get("categoria"),
         "intro": conteudo.get("introducao"),
         "subcategorySlug": pauta["subcategoria"],
         "prepTimeMin": conteudo["tempo_preparo_min"],
@@ -142,6 +144,7 @@ def montar_payload_receita(
         "collections": list(colecoes),
         "diet": dieta,
         "cover": cover,
+        "coverImageUrl": cover_image_url,
         "coverImageAlt": conteudo["texto_alt_imagem"],
         "status": status,
         "aiModel": modelo_ia,

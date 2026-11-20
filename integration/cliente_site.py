@@ -12,6 +12,7 @@ o payload e não faz rede. O transporte é injetável para testes.
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import logging
 import re
@@ -173,6 +174,7 @@ class ClienteSite:
         allow_production: bool = False,
         articles_enabled: bool = False,
         contract: str = "v1",
+        upload_images: bool = False,
     ):
         partes = urlparse(base_url or "")
         host = (partes.hostname or "").lower().rstrip(".")
@@ -198,6 +200,7 @@ class ClienteSite:
         self._tokens = {"draft": token_draft or None, "publish": token_publish or None}
         self.fase, self.contract_version, self.dry_run = fase, str(contract_version), dry_run
         self.contract = contract
+        self.upload_images = upload_images
         self.articles_enabled = articles_enabled
         self._espera, self._timeout, self._max, self._base_espera = espera, timeout, max(1, max_tentativas), base_espera
         self._gerar_id = gerar_id
@@ -320,6 +323,32 @@ class ClienteSite:
         raise ErroSite(msg or f"HTTP {s}", **kw)
 
     # ---- escrita -------------------------------------------------------------------
+
+    def upload_imagem(self, conteudo: bytes, *, content_type: str, alt: str, nome: str) -> str:
+        """Envia bytes validados ao storage público do site e devolve URL HTTPS."""
+        if not conteudo:
+            raise ContratoInvalido([{"campo": "imagem", "detalhe": "conteúdo vazio"}])
+        if not content_type.startswith("image/"):
+            raise ContratoInvalido([{"campo": "contentType", "detalhe": "tipo de imagem inválido"}])
+        token = self._token_para("draft")
+        chave = hashlib.sha256(b"image|" + hashlib.sha256(conteudo).digest()).hexdigest()
+        corpo = {
+            "fileName": nome[:180], "contentType": content_type,
+            "dataBase64": base64.b64encode(conteudo).decode("ascii"),
+            "alt": alt[:180],
+        }
+        if self.dry_run:
+            return "https://dry-run.invalid/images/" + chave
+        resp, ids = self._requisitar("POST", "/api/uploads", token=token, corpo=corpo, chave=chave)
+        self._levantar(resp, ids)
+        try:
+            dados = resp.json()
+        except Exception:
+            raise ErroSite("resposta de upload sem JSON válido", http_status=resp.status_code, request_id=ids[-1]) from None
+        url = dados.get("url") if isinstance(dados, dict) else None
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise ErroSite("upload não devolveu URL HTTPS pública", http_status=resp.status_code, request_id=ids[-1])
+        return url
 
     def criar_receita(
         self, payload: dict | ReceitaV1, *, run_id: str,

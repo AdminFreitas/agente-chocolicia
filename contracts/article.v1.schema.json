@@ -237,6 +237,20 @@
       "title": "Coverimagealt",
       "type": "string"
     },
+    "coverImageUrl": {
+      "anyOf": [
+        {
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Coverimageurl"
+    },
     "excerpt": {
       "maxLength": 160,
       "minLength": 20,

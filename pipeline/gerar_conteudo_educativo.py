@@ -87,6 +87,7 @@ class DependenciasDica:
     calendario: Optional[dict] = None
     tags_existentes: list[str] = field(default_factory=list)
     baixar: Optional[Callable[..., Any]] = None  # só para testes (download de imagem)
+    gerar_imagem: Optional[Callable[[str], Any]] = None
     salvar_interno: Optional[Callable[[str, str, str, dict], Any]] = None
 
 
@@ -240,6 +241,25 @@ def gerar_dica(
     pend += img.pendencias
     if img.cover is None:
         return falhar("rejected", "imagem", "IMG-07", *img.pendencias)
+    if getattr(img, "status", None) == "generate" and getattr(img, "conteudo", None) is None and deps.gerar_imagem is not None:
+        try:
+            gerada = deps.gerar_imagem(img.cover.get("imagePrompt", conteudo["titulo"]))
+            img.conteudo = gerada.conteudo
+            img.meta.update({"mime": gerada.mime, "sha256": gerada.sha256, "provider": "agent-image", "provider_image_id": gerada.sha256})
+        except Exception as exc:
+            return falhar("error", "geracao_imagem", "IMG-GENERATE", str(exc))
+
+    cover_image_url = None
+    if getattr(deps.cliente, "contract", "v1") != "legacy":
+        imagem_bytes = getattr(img, "conteudo", None)
+        if isinstance(imagem_bytes, (bytes, bytearray)) and getattr(deps.cliente, "upload_images", False) and hasattr(deps.cliente, "upload_imagem"):
+            try:
+                cover_image_url = deps.cliente.upload_imagem(
+                    bytes(imagem_bytes), content_type=(img.meta or {}).get("mime", "image/jpeg"),
+                    alt=conteudo["texto_alt_imagem"], nome=f"{conteudo['titulo']}.jpg",
+                )
+            except Exception as exc:
+                return falhar("error", "upload_imagem", "IMG-UPLOAD", str(exc))
 
     # ---- 7. payload e status
     publicavel = (
@@ -251,6 +271,7 @@ def gerar_dica(
         payload = montar_payload_dica(
             conteudo, pauta=pauta, ficha=ficha, cover=img.cover, run_id=run_id, fase=fase, modelo=cri.modelo,
             prompt_version=cri.prompt_version, status=status, validators_version=validators_version,
+            cover_image_url=cover_image_url,
         )
     except ContratoInvalido as exc:
         return falhar("rejected", "adaptador", "API-01", *[f'{e["campo"]}: {e["detalhe"]}' for e in exc.erros])
