@@ -53,3 +53,16 @@ O contrato v1 documentado não aceita `meta_description` ou `schema_org` como ca
 **Ollama em GitHub Actions:** um runner hospedado pelo GitHub não consegue acessar `localhost` da sua máquina. Este modo é para execução local; para Actions, use um runner self-hosted com Ollama instalado e mantenha segredos em Actions Secrets. Os workflows agendados existentes não foram alterados para expor tokens ou acessar um serviço local.
 
 Falhas de inferência e de rede são registradas, resultam em `status: failed` no resultado salvo e não geram POST inválido. A camada de cliente repete falhas temporárias do servidor/conexão com a mesma chave de idempotência; erros 4xx não são repetidos.
+
+
+## Acionamento diário de receitas no site
+
+O workflow `.github/workflows/gerar-receitas.yml` agora aciona o backend do site por meio de `scripts/gerar_receita_blog.py`. A geração de texto, imagem, armazenamento e persistência continuam exclusivamente no site; o agente não acessa o banco Neon do site.
+
+Configure em **Settings → Secrets and variables → Actions**:
+- Secret obrigatório `CRON_SECRET`: mesmo valor definido no projeto Vercel do site.
+- Variable opcional `CHOCOLICIA_SITE_URL`: origem HTTPS do site. O padrão é `https://www.chocolicia.site`.
+
+O workflow mantém o horário existente (08h de Brasília) e só executa quando a variável `AGENT_ENABLED` estiver como `true`. O acionamento manual inicia em `dry_run=true`; desmarque apenas para enviar o POST real.
+
+**Evite geração duplicada:** o site possui cron próprio em `vercel.json` para `/api/recipes/generate-daily`. Antes de habilitar `AGENT_ENABLED=true`, desative esse cron no projeto Vercel. Não altere os demais crons. O agente envia uma única requisição e não repete automaticamente em caso de timeout; confira o site antes de reexecutar.
