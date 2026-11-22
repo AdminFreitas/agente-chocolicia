@@ -44,6 +44,9 @@ jobs:
 
       - name: Validar configuração
         if: ${{ inputs.dry_run }}
+        env:
+          # O dry-run só informa se o segredo existe (sim/não); nunca imprime o valor.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: python scripts/gerar_receita_blog.py --dry-run
 
       - name: Acionar geração no backend do site

@@ -8,6 +8,8 @@
 | Depende de | `01-ARQUITETURA.md`, `03-PROMPT-SISTEMA.md`, `04-ESTRUTURA-CONTEUDO.md`, `05-SEO.md` |
 | Alimenta | Implementação do adaptador no agente e das alterações no site; `08-VALIDACAO.md` (contrato) |
 
+> **Estado de implementação (21/11/2026).** Este documento descreve o contrato **v1 planejado**. O site hoje implementa apenas `POST /api/recipes` (token único `RECIPES_AGENT_TOKEN`, sem escopos; corpo `recipeInputSchema` com `category` e `coverImageUrl`) e `GET|POST /api/recipes/generate-daily` (`CRON_SECRET`). As rotas marcadas como **Novo** (`/api/articles`, `/api/taxonomy`, `/api/coverage` etc.) e o objeto `cover` ainda não existem no site. A conversão para o que o site aceita fica em `integration/site_client.py`.
+
 ---
 
 ## 1. Objetivo e escopo

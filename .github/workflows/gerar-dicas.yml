@@ -86,6 +86,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # Falha cedo e com motivo claro enquanto o fluxo de dicas não existir no repositório:
+      # rodar_agente.py só aceita --artigo (docs/PLANO-REFATORACAO-AGENTE.md, etapa 9) e o
+      # site ainda não expõe POST /api/articles. Remova este passo quando o comando existir.
+      - name: Verificar pré-requisitos do fluxo de dicas
+        shell: bash
+        run: |
+          if ! grep -q -- '--dica' rodar_agente.py; then
+            echo "::error title=Fluxo de dicas indisponível::rodar_agente.py ainda não implementa --dica e o site não expõe POST /api/articles. Desative AGENT_DICAS_ENABLED até que ambos existam."
+            exit 1
+          fi
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
