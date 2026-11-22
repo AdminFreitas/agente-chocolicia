@@ -110,8 +110,8 @@ def validar_payload(payload: dict) -> None:
         erros.append(f"conteúdo com menos de {TAMANHO_MINIMO_CORPO} caracteres")
     if payload.get("articleType") != "dica":
         erros.append("articleType deve ser 'dica'")
-    if payload.get("status") not in ("draft", "published"):
-        erros.append("status inválido")
+    if payload.get("status") != "draft":
+        erros.append("dicas editoriais devem ser enviadas somente como draft")
     if payload.get("topicSlug") not in TOPICOS:
         erros.append("topicSlug desconhecido")
     if erros:
