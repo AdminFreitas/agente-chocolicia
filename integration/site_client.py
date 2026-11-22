@@ -6,8 +6,10 @@ Contrato que o site (AdminFreitas/chocolicia) implementa hoje:
   validado por ``recipeInputSchema`` (``shared/recipes.ts``). Exige ``category`` e
   ``coverImageUrl`` (imagem já hospedada) e aceita ``status`` ``draft`` ou
   ``published``. O site não aplica escopos por token nem usa ``Idempotency-Key``.
-* O site não expõe ``POST /api/articles`` (dicas) nem o objeto ``cover`` do contrato
-  v1 planejado em ``docs/06-INTEGRACAO.md``.
+* ``POST /api/articles`` (dicas): mesmo Bearer; corpo estrito (``articleInputSchema``),
+  aceita ``topicSlug``/``categorySlug``. Respostas: 400 validação, 401/403 token,
+  409 slug duplicado, 422 categoria/tópico inexistente, 503 token não configurado.
+* O site não usa o objeto ``cover`` do contrato v1 planejado em ``docs/06-INTEGRACAO.md``.
 
 O payload local (``integration/content.py``) segue o contrato v1 e é salvo assim em
 ``output/``; aqui ele é convertido para o formato que o site aceita antes do envio.
@@ -129,7 +131,7 @@ def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
                 if not response.is_success:
                     if response.status_code == 404 and endpoint.endswith("/api/articles"):
                         raise SiteAPIError(
-                            "O site não expõe POST /api/articles (dicas); o envio de dicas depende dessa rota.",
+                            "O site não expõe POST /api/articles; faça deploy da versão do site com a rota de artigos no ambiente de destino.",
                             404,
                         )
                     raise SiteAPIError(
