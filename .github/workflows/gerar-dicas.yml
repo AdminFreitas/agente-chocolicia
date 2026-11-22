@@ -52,17 +52,15 @@ jobs:
     timeout-minutes: 30
     env:
       # --- Execução ---
-      TARGET: ${{ inputs.target || 'producao' }}
+      TARGET: ${{ inputs.target || 'preview' }}
       DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
       ASSUNTO: ${{ inputs.assunto || 'automatico' }}
-      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
       CONTRACT_VERSION: "1"
 
       # --- Site (o agente só fala com o site por API) ---
       SITE_BASE_URL_PROD: ${{ vars.SITE_BASE_URL }}
       SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
       SITE_TOKEN_DRAFT_PROD: ${{ secrets.SITE_TOKEN_DRAFT }}
-      SITE_TOKEN_PUBLISH_PROD: ${{ secrets.SITE_TOKEN_PUBLISH }}
       SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
 
       # --- Provedores de IA (somente os da lista de modelos aprovados) ---
@@ -103,24 +101,33 @@ jobs:
           if [ "${TARGET}" = "preview" ]; then
             export SITE_BASE_URL="${SITE_BASE_URL_PREVIEW}"
             export SITE_TOKEN_DRAFT="${SITE_TOKEN_DRAFT_PREVIEW}"
-            unset SITE_TOKEN_PUBLISH || true
           else
             export SITE_BASE_URL="${SITE_BASE_URL_PROD}"
             export SITE_TOKEN_DRAFT="${SITE_TOKEN_DRAFT_PROD}"
-            if [ "${AGENT_PHASE}" != "0" ]; then
-              export SITE_TOKEN_PUBLISH="${SITE_TOKEN_PUBLISH_PROD}"
-            fi
           fi
 
-          ARGS="--dica --target ${TARGET}"
+          if [ -z "${SITE_BASE_URL}" ]; then
+            echo "::error::SITE_BASE_URL do ambiente escolhido não está configurada."
+            exit 1
+          fi
+          if [ "${DRY_RUN}" != "true" ] && [ -z "${SITE_TOKEN_DRAFT}" ]; then
+            echo "::error::Token de rascunho ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de RECIPES_AGENT_TOKEN do site."
+            exit 1
+          fi
+          if [ -z "${GEMINI_API_KEY}" ]; then
+            echo "::error::GEMINI_API_KEY está ausente; Gemini é o provedor primário aprovado para criação."
+            exit 1
+          fi
+
+          ARGS=(--dica --target "${TARGET}")
           if [ "${ASSUNTO}" != "automatico" ]; then
-            ARGS="${ARGS} --assunto ${ASSUNTO}"
+            ARGS+=(--assunto "${ASSUNTO}")
           fi
           if [ "${DRY_RUN}" = "true" ]; then
-            ARGS="${ARGS} --dry-run"
+            ARGS+=(--dry-run)
           fi
 
-          python rodar_agente.py ${ARGS}
+          python rodar_agente.py "${ARGS[@]}"
 
       - name: Resumo da execução
         if: always()
