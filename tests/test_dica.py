@@ -105,6 +105,12 @@ class DicaFlowTests(unittest.TestCase):
         with patch.dict(os.environ, {"AGENT_PHASE": "0"}):
             self.assertEqual(gerar_dica._status("producao"), "draft")
 
+    def test_validacao_rejeita_status_published(self):
+        dados = gerar_dica.llm_service.parsear_resposta_padrao(TEXTO)
+        payload = gerar_dica.montar_payload(dados, "preparo", META, "published")
+        with self.assertRaisesRegex(gerar_dica.DicaInvalida, "somente como draft"):
+            gerar_dica.validar_payload(payload)
+
 
 class CliTests(unittest.TestCase):
     def test_dica_chama_pipeline_e_retorna_zero(self):
