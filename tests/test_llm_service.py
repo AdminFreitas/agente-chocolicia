@@ -40,7 +40,7 @@ def test_fallback_transitorio_informa_provedor_que_respondeu(monkeypatch):
     monkeypatch.setattr(
         llm,
         "_chamar_provedor",
-        lambda item, prompt: (_ for _ in ()).throw(ProviderHttpError(503))
+        lambda item, prompt: (_ for _ in ()).throw(ProvedorHttpError(503))
         if item["provedor"] == "gemini"
         else "resposta do fallback",
     )
