@@ -97,9 +97,9 @@ class DicaFlowTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             gerar_dica.gerar_dica("preparo", dry_run=True)
 
-    def test_status_published_so_em_producao_fase_nao_zero(self):
+    def test_dicas_sao_sempre_rascunhos_em_qualquer_ambiente(self):
         with patch.dict(os.environ, {"AGENT_PHASE": "1"}):
-            self.assertEqual(gerar_dica._status("producao"), "published")
+            self.assertEqual(gerar_dica._status("producao"), "draft")
             self.assertEqual(gerar_dica._status("preview"), "draft")
         with patch.dict(os.environ, {"AGENT_PHASE": "0"}):
             self.assertEqual(gerar_dica._status("producao"), "draft")
