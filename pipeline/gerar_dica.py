@@ -10,7 +10,7 @@ import json
 import os
 import random
 import re
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 from integration import site_client
@@ -155,9 +155,11 @@ def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_
     try:
         resposta_site = site_client.post_content(payload, "dica", topico)
     except site_client.SiteAPIError as exc:
-        if exc.status_code != 409:
-            raise
-        sufixo = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
-        payload["slug"] = f"{payload['slug']}-{sufixo}"[:180]
-        resposta_site = site_client.post_content(payload, "dica", topico)
+        if exc.status_code == 409:
+            raise site_client.SiteAPIError(
+                f"O slug '{payload['slug']}' já existe. Não criei um slug alternativo automaticamente "
+                "para evitar duplicar conteúdo; confira o artigo existente antes de uma nova tentativa.",
+                409,
+            ) from exc
+        raise
     return {"enviado": True, "payload": payload, "site": resposta_site}
