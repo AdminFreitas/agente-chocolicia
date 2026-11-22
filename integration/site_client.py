@@ -131,9 +131,9 @@ def _http_message(status: int, body: str) -> str:
     if status == 409:
         return "Slug duplicado (HTTP 409). Gere um slug novo antes de repetir o envio."
     if status == 422:
-        return "Categoria ou tópico não cadastrado/aceito pelo site (HTTP 422). Verifique os registros existentes no Neon."
+        return "Categoria ou tópico não cadastrado/aceito pelo site (HTTP 422). Verifique os registros existentes no Neon." + (f" Detalhe: {details}" if details else "")
     if status == 503:
-        return "A API do site está indisponível ou sem configuração obrigatória (HTTP 503)."
+        return "A API do site está indisponível ou sem configuração obrigatória (HTTP 503)." + (f" Detalhe: {details}" if details else "")
     if status == 429:
         return "A API do site limitou as requisições (HTTP 429)."
     return f"API do site respondeu HTTP {status}." + (f" Detalhe: {details}" if details else "")
