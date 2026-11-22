@@ -8,7 +8,7 @@
 | Depende de | `01-ARQUITETURA.md`, `03-PROMPT-SISTEMA.md`, `04-ESTRUTURA-CONTEUDO.md`, `05-SEO.md` |
 | Alimenta | Implementação do adaptador no agente e das alterações no site; `08-VALIDACAO.md` (contrato) |
 
-> **Estado de implementação (21/11/2026).** Este documento descreve o contrato **v1 planejado**. O site hoje implementa apenas `POST /api/recipes` (token único `RECIPES_AGENT_TOKEN`, sem escopos; corpo `recipeInputSchema` com `category` e `coverImageUrl`) e `GET|POST /api/recipes/generate-daily` (`CRON_SECRET`). As rotas marcadas como **Novo** (`/api/articles`, `/api/taxonomy`, `/api/coverage` etc.) e o objeto `cover` ainda não existem no site. A conversão para o que o site aceita fica em `integration/site_client.py`.
+> **Estado da implementação editorial (22/11/2026).** A branch `fix/articles-neon-integration` do repositório do site contém `POST /api/articles`, autenticado por Bearer igual a `RECIPES_AGENT_TOKEN`, com tipos `dica`, `tecnica` e `materia`, e `draft` como padrão. Essa rota ainda precisa ser revisada, integrada e implantada no ambiente de destino; este documento e o código de branch não comprovam que a rota esteja disponível em produção ou Preview. O fluxo de dicas usa `SITE_BASE_URL`, token de rascunho e o cliente `integration/site_client.py`; não depende do banco interno do agente nem de Ollama. A API de receitas e `/api/recipes/generate-daily` são fluxos separados.
 
 ---
 
@@ -405,3 +405,32 @@ O limite de requisições por minuto e o limite diário **não constam como exis
 | Domínios permitidos de imagem | Definir após conferir os termos de cada provedor |
 | Retenção da chave de idempotência | Valor inicial de 24 horas, a confirmar |
 | Valores iniciais de limite (por minuto, IA por dia) | Definir na implementação |
+
+
+---
+
+## 19. Integração editorial implementada na branch de trabalho
+
+- Agente: `feat/dica-articles-site`.
+- Site: `fix/articles-neon-integration`.
+- Endpoint esperado: `POST /api/articles`.
+- Tipos aceitos pelo schema do site: `dica`, `tecnica`, `materia`.
+- O agente de dicas envia somente `articleType: "dica"` e `status: "draft"`; o target seleciona a URL, não o status.
+- Token: `SITE_TOKEN_DRAFT` (compatibilidade `CHOCOLICIA_TOKEN_DRAFT`) deve ser exatamente o valor do `RECIPES_AGENT_TOKEN` no site. `CRON_SECRET` é exclusivo do endpoint de geração diária de receitas.
+- `SITE_BASE_URL` tem precedência sobre `CHOCOLICIA_API_URL`. Preview deve receber a URL de deployment de Preview, não o domínio de produção.
+- A capa é opcional. A API de artigos aceita `coverImageUrl` somente quando há URL HTTP/HTTPS já hospedada; o agente não faz upload improvisado nem depende de arquivo temporário.
+- Categorias e tópicos são resolvidos pelo slug no servidor. Slug inexistente deve retornar `422`; a verificação dos registros reais de `categories` e `tip_topics` depende de consulta somente-leitura ao Neon e ainda não foi realizada nesta execução.
+
+### Fallback de IA
+
+`services/llm_service.py` percorre a lista ordenada de modelos aprovados para a tarefa. O fallback ocorre somente após erro transitório reconhecido (timeout/conexão, HTTP 408, 425, 429, 500, 502, 503 ou 504) ou resposta vazia. Erros HTTP 400, 401, 403 e 404 interrompem a cadeia; chave ausente do provedor primário ou modelo não aprovado também interrompem. Metadados registram o provedor e modelo que realmente responderam.
+
+**Limitação da configuração atual:** `config/modelos_aprovados.json` tem apenas Gemini em `criacao`. Portanto, o código suporta fallback quando há mais de um item aprovado, mas a configuração atual não tem provedor secundário para criação. Não foi adicionado um modelo/provedor à lista sem aprovação explícita.
+
+### Idempotência e envio ambíguo
+
+O site atual não comprova que persiste ou aplica `Idempotency-Key`. Por isso, o agente não repete automaticamente um POST após timeout, falha de conexão ou 5xx. Em `409` de slug duplicado, interrompe sem gerar slug alternativo, para não duplicar conteúdo. O envio pode ser retomado após confirmar manualmente o slug no site. Para retry automático seguro, o site precisa de idempotência persistente ou endpoint de consulta de artigo por chave/slug.
+
+### Neon e validação
+
+Não foram executadas migrations nem alterações de schema. O código usa as tabelas editoriais declaradas no Drizzle (`articles`, `article_tags`, `article_images`, `categories`, `tip_topics`), mas isso não confirma que o Neon do ambiente de Preview/produção tenha exatamente essas colunas. A integração só será considerada validada após envio real ao Preview e confirmação de gravação com `status=draft`.
