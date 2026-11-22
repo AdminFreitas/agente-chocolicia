@@ -1,53 +1,91 @@
-"""
-tests/test_pixabay_service.py — Teste unitário para a integração do Pixabay no agente.
-"""
+"""Testes unitários do Pixabay: respostas HTTP simuladas, sem rede ou chave real."""
 
-import sys
-import os
+from __future__ import annotations
 
-# Adiciona o diretório raiz ao PATH
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from unittest.mock import patch
 
-from dotenv import load_dotenv
-load_dotenv()
+import httpx
 
-from services.pixabay_service import buscar_pixabay, buscar_imagem_receita
+from services import pixabay_service
 
 
-def test_busca_direta_pixabay():
-    print("\n--- Teste 1: Busca direta na API do Pixabay ---")
-    hits = buscar_pixabay("bolo de chocolate", lang="pt", categoria="food")
-    assert hits is not None, "Falha: hits retornou None"
-    assert len(hits) > 0, "Falha: nenhum resultado retornado"
-    print(f"Sucesso! Retornados {len(hits)} hits para 'bolo de chocolate'.")
-    primeiro = hits[0]
-    print(f"ID: {primeiro.get('id')} | Autor: {primeiro.get('user')} | Dimensões: {primeiro.get('imageWidth')}x{primeiro.get('imageHeight')}")
-    print(f"Page URL: {primeiro.get('pageURL')}")
-    print(f"Large URL: {primeiro.get('largeImageURL')}")
+HIT = {
+    "id": 12345,
+    "user": "Autor de teste",
+    "user_id": 678,
+    "imageWidth": 1920,
+    "imageHeight": 1280,
+    "webformatWidth": 1280,
+    "largeImageURL": "https://pixabay.example/image-large.jpg",
+    "fullHDURL": "https://pixabay.example/image-fullhd.jpg",
+    "webformatURL": "https://pixabay.example/image-web.jpg",
+    "pageURL": "https://pixabay.example/page",
+    "downloads": 300,
+    "likes": 50,
+    "tags": "bolo, chocolate, sobremesa",
+}
 
 
-def test_busca_imagem_receita():
-    print("\n--- Teste 2: Formatação de contrato para receita ---")
-    receitas_teste = [
-        ("Bolo Fofinho de Cenoura com Cobertura de Chocolate", "Bolos", "Bolo Caseiro"),
-        ("Brigadeiro Gourmet Tradicional com Granulado Belga", "Docinhos", "Brigadeiros"),
-        ("Torta Holandesa Cremosa", "Tortas", "Tortas Doces"),
-    ]
-
-    for titulo, cat, subcat in receitas_teste:
-        res = buscar_imagem_receita(titulo, categoria=cat, subcategoria=subcat)
-        assert res is not None, f"Falha ao buscar imagem para {titulo}"
-        assert res["mode"] == "stock"
-        assert res["provider"] == "pixabay"
-        assert res["sourceImageUrl"].startswith("http")
-        assert res["sourcePageUrl"].startswith("http")
-        assert "Pixabay" in res["attributionText"]
-        assert len(res["coverImageAlt"]) >= 8
-        print(f"OK: '{titulo}' -> Imagem por '{res['author']}' | Alt: '{res['coverImageAlt']}' | URL: {res['sourceImageUrl'][:60]}...")
+def response(hits: list[dict]) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={"total": len(hits), "hits": hits},
+        request=httpx.Request("GET", pixabay_service.PIXABAY_ENDPOINT),
+    )
 
 
-if __name__ == "__main__":
-    test_busca_direta_pixabay()
-    test_busca_imagem_receita()
-    print("\nTodos os testes do Pixabay passaram com sucesso!")
+def setup_pixabay(monkeypatch):
+    monkeypatch.setattr(pixabay_service, "PIXABAY_API_KEY", "test-api-key")
+    pixabay_service._query_cache.clear()
 
+
+def test_busca_direta_pixabay_usa_parametros_e_retorna_hits(monkeypatch):
+    setup_pixabay(monkeypatch)
+    with patch.object(pixabay_service.httpx, "get", return_value=response([HIT])) as get:
+        hits = pixabay_service.buscar_pixabay("bolo de chocolate", lang="pt", categoria="food")
+
+    assert hits == [HIT]
+    _, kwargs = get.call_args
+    assert kwargs["params"]["q"] == "bolo de chocolate"
+    assert kwargs["params"]["lang"] == "pt"
+    assert kwargs["params"]["category"] == "food"
+    assert kwargs["params"]["min_width"] == 1280
+    assert kwargs["params"]["key"] == "test-api-key"
+
+
+def test_busca_imagem_receita_formata_proveniencia(monkeypatch):
+    setup_pixabay(monkeypatch)
+    with patch.object(pixabay_service.httpx, "get", return_value=response([HIT])) as get:
+        result = pixabay_service.buscar_imagem_receita(
+            "Bolo Fofinho de Cenoura com Cobertura de Chocolate",
+            categoria="Bolos",
+            subcategoria="Bolo Caseiro",
+        )
+
+    assert result is not None
+    assert result["mode"] == "stock"
+    assert result["provider"] == "pixabay"
+    assert result["sourceImageUrl"] == HIT["largeImageURL"]
+    assert result["sourcePageUrl"] == HIT["pageURL"]
+    assert result["author"] == HIT["user"]
+    assert "Pixabay" in result["attributionText"]
+    assert len(result["coverImageAlt"]) >= 8
+    assert get.call_count == 1
+
+
+def test_busca_pixabay_usa_cache_sem_repetir_requisicao(monkeypatch):
+    setup_pixabay(monkeypatch)
+    with patch.object(pixabay_service.httpx, "get", return_value=response([HIT])) as get:
+        first = pixabay_service.buscar_pixabay("ganache")
+        second = pixabay_service.buscar_pixabay("ganache")
+
+    assert first == second == [HIT]
+    assert get.call_count == 1
+
+
+def test_busca_sem_chave_nao_chama_api(monkeypatch):
+    monkeypatch.setattr(pixabay_service, "PIXABAY_API_KEY", "")
+    pixabay_service._query_cache.clear()
+    with patch.object(pixabay_service.httpx, "get") as get:
+        assert pixabay_service.buscar_pixabay("bolo") is None
+    get.assert_not_called()

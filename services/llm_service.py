@@ -141,48 +141,114 @@ def _contabilizar(prompt: str, texto: str) -> None:
     CONTADORES["tokens"] += len((prompt + texto).split())
 
 
-def gerar_texto(tarefa: str, prompt: str | None = None, tentativas_por_provedor: int = 2) -> str:
-    if prompt is None:
-        prompt = tarefa
-        tarefa = "criacao"
+class RespostaProvedorVazia(RuntimeError):
+    """Resposta vazia: erro transitório que permite tentar outro provedor aprovado."""
+
+
+def _codigo_http(exc: Exception) -> int | None:
+    for obj in (exc, getattr(exc, "response", None), getattr(exc, "cause", None)):
+        if obj is None:
+            continue
+        for attr in ("status_code", "code"):
+            value = getattr(obj, attr, None)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
+    return None
+
+
+def _erro_configuracao(exc: Exception) -> bool:
+    code = _codigo_http(exc)
+    return code in {400, 401, 403, 404}
+
+
+def _erro_transitorio(exc: Exception) -> bool:
+    code = _codigo_http(exc)
+    if code in {408, 425, 429, 500, 502, 503, 504}:
+        return True
+    return isinstance(exc, (httpx.TimeoutException, httpx.TransportError, ConnectionError, RespostaProvedorVazia))
+
+
+def _gerar_texto_com_metadados(
+    tarefa: str, prompt: str, tentativas_por_provedor: int = 2
+) -> dict:
     modelos = _modelos_aprovados(tarefa)
     if not modelos:
         raise ModeloNaoAprovado(f"Nenhum modelo aprovado para a tarefa '{tarefa}'")
 
-    erros = []
-    for item in modelos:
-        provedor = item.get("provedor", "")
-        if not _chave_provedor(provedor):
-            erros.append(f"{provedor}: chave nao configurada")
+    erros: list[str] = []
+    inicio_total = time.monotonic()
+    for indice, item in enumerate(modelos):
+        provedor = str(item.get("provedor", "")).lower()
+        chave = _chave_provedor(provedor)
+        if not chave:
+            mensagem = f"Chave ausente para o provedor aprovado '{provedor}'."
+            if indice == 0:
+                raise ModeloNaoAprovado(mensagem)
+            erros.append(f"{provedor}: chave ausente")
             continue
-        for _ in range(tentativas_por_provedor):
-            inicio = time.monotonic()
+
+        modelo = _modelo_resolvido(item)
+        if not modelo:
+            raise ModeloNaoAprovado(f"Modelo aprovado sem identificador para {provedor}")
+
+        for tentativa in range(max(1, tentativas_por_provedor)):
             try:
                 CONTADORES["requisicoes"] += 1
                 texto = _chamar_provedor(item, prompt)
+                if not texto or not texto.strip():
+                    raise RespostaProvedorVazia("Resposta vazia")
+                texto = texto.strip()
                 _contabilizar(prompt, texto)
-                if texto and texto.strip():
-                    return texto.strip()
-                raise RuntimeError("Resposta vazia")
+                return {
+                    "texto": texto,
+                    "provedor": provedor,
+                    "modelo": modelo,
+                    "tempo_ms": int((time.monotonic() - inicio_total) * 1000),
+                }
+            except ModeloNaoAprovado:
+                raise
             except Exception as exc:
-                erros.append(f"{provedor}: {exc}")
-            finally:
-                time.monotonic() - inicio
-    raise RuntimeError(f"Falha nos modelos aprovados: {'; '.join(erros)}")
+                if _erro_configuracao(exc):
+                    code = _codigo_http(exc)
+                    raise ModeloNaoAprovado(
+                        f"Erro de autenticação/configuração no provedor primário '{provedor}'"
+                        + (f" (HTTP {code})" if code else "")
+                        + "; fallback interrompido."
+                    ) from exc
+                if not _erro_transitorio(exc):
+                    raise RuntimeError(
+                        f"Erro não classificado como transitório no provedor '{provedor}' "
+                        f"({type(exc).__name__}); fallback interrompido."
+                    ) from exc
+                erros.append(
+                    f"{provedor}: falha transitória"
+                    + (f" HTTP {_codigo_http(exc)}" if _codigo_http(exc) else "")
+                )
+
+    raise RuntimeError(
+        "Todos os provedores aprovados configurados falharam temporariamente: "
+        + "; ".join(erros)
+    )
 
 
-def gerar_texto_com_metadados(tarefa: str, prompt: str | None = None, tentativas_por_provedor: int = 2) -> dict:
+def gerar_texto(
+    tarefa: str, prompt: str | None = None, tentativas_por_provedor: int = 2
+) -> str:
     if prompt is None:
         prompt = tarefa
         tarefa = "criacao"
-    texto = gerar_texto(tarefa, prompt, tentativas_por_provedor)
-    modelo_usado = _modelos_aprovados(tarefa)[0] if _modelos_aprovados(tarefa) else {}
-    return {
-        "texto": texto,
-        "provedor": modelo_usado.get("provedor", ""),
-        "modelo": _modelo_resolvido(modelo_usado) if modelo_usado else "",
-        "tempo_ms": 0,
-    }
+    return _gerar_texto_com_metadados(tarefa, prompt, tentativas_por_provedor)["texto"]
+
+
+def gerar_texto_com_metadados(
+    tarefa: str, prompt: str | None = None, tentativas_por_provedor: int = 2
+) -> dict:
+    if prompt is None:
+        prompt = tarefa
+        tarefa = "criacao"
+    return _gerar_texto_com_metadados(tarefa, prompt, tentativas_por_provedor)
 
 
 def gerar_artigo(tema: str, categoria: str = "Tecnologia", tentativas_por_provedor: int = 2) -> dict:
@@ -195,13 +261,14 @@ RESUMO: ...
 TEMPO_LEITURA: X min
 ===CORPO===
 ..."""
-    texto = gerar_texto("criacao", prompt, tentativas_por_provedor)
-    dados = _parsear_resposta(texto)
+    resposta = gerar_texto_com_metadados("criacao", prompt, tentativas_por_provedor)
+    dados = _parsear_resposta(resposta["texto"])
     return {
         **dados,
         "slug": _gerar_slug(dados["titulo"]),
         "categoria": categoria,
         "conteudo_markdown": dados["corpo"].strip(),
         "data": date.today().isoformat(),
-        "provedor": _modelos_aprovados("criacao")[0]["provedor"],
+        "provedor": resposta["provedor"],
+        "modelo": resposta["modelo"],
     }

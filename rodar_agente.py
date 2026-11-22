@@ -6,14 +6,11 @@ para ler os títulos recentes usados como contexto de sugestão de tema.
 """
 
 import argparse
+import os
 import random
 import sys
 from datetime import datetime
 
-from config.database import SessionLocal
-from agents import pesquisador
-from repositories.artigo_repository import ArtigoRepository
-from pipeline.gerar_artigos import gerar_e_processar_artigo
 
 
 PUBLICAR_IMEDIATAMENTE = True
@@ -46,6 +43,9 @@ def _buscar_temas_recentes(limite: int = 30) -> list[str]:
     coisa falhar aqui, a geração do artigo não deve travar por causa
     disso, só perde o contexto de "não repita esses temas".
     """
+    from config.database import SessionLocal
+    from repositories.artigo_repository import ArtigoRepository
+
     db = SessionLocal()
     try:
         artigos = ArtigoRepository(db).listar_todos(limite=limite)
@@ -72,6 +72,9 @@ def rodar_artigo(publicar: bool | None = None) -> bool:
     real — nunca lança exceção, quem chama decide o que fazer com o
     resultado (ex.: exit code pro cron/GitHub Actions perceber falha).
     """
+    from agents import pesquisador
+    from pipeline.gerar_artigos import gerar_e_processar_artigo
+
     publicar_imediatamente = (
         PUBLICAR_IMEDIATAMENTE if publicar is None else publicar
     )
@@ -105,23 +108,39 @@ def rodar_artigo(publicar: bool | None = None) -> bool:
         return False
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Gera um artigo — para uso via cron."
-    )
-    parser.add_argument(
-        "--artigo",
-        action="store_true",
-        help="Gera um artigo evergreen",
-    )
-    args = parser.parse_args()
+def rodar_dica(assunto: str | None = "automatico", target: str = "preview", dry_run: bool = False) -> bool:
+    """Gera uma dica e a envia ao site (POST /api/articles). True em sucesso, False em falha."""
+    from pipeline.gerar_dica import gerar_dica
 
-    if not args.artigo:
-        parser.error("Use --artigo.")
+    try:
+        resultado = gerar_dica(assunto, target=target, dry_run=dry_run)
+    except Exception as e:
+        _log(f"FALHA ao gerar dica: {type(e).__name__}: {e}")
+        return False
+    slug = resultado["payload"]["slug"]
+    _log(f"Dica OK ({'dry-run, não enviada' if not resultado['enviado'] else 'enviada ao site'}): {slug}")
+    return True
 
-    ok_artigo = True
 
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Gera conteúdo — para uso via cron.")
+    parser.add_argument("--artigo", action="store_true", help="Gera um artigo evergreen")
+    parser.add_argument("--dica", action="store_true", help="Gera uma dica e envia ao site")
+    parser.add_argument("--assunto", default="automatico", help="Slug do tópico da dica")
+    parser.add_argument("--target", default=os.getenv("TARGET", "preview"), choices=["preview", "producao"])
+    parser.add_argument("--dry-run", action="store_true", help="Gera e valida, sem enviar ao site")
+    args = parser.parse_args(argv)
+
+    if not (args.artigo or args.dica):
+        parser.error("Use --artigo e/ou --dica.")
+
+    ok = True
     if args.artigo:
-        ok_artigo = rodar_artigo()
+        ok = rodar_artigo() and ok
+    if args.dica:
+        ok = rodar_dica(args.assunto, args.target, args.dry_run) and ok
+    return 0 if ok else 1
 
-    sys.exit(0 if ok_artigo else 1)
+
+if __name__ == "__main__":
+    sys.exit(main())
