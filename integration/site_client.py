@@ -1,6 +1,6 @@
 """Cliente autenticado para a API do site Chocolícia.
 
-Contrato que o site (AdminFreitas/chocolicia) implementa hoje:
+Contrato da API existente na branch de integração do site (AdminFreitas/chocolicia):
 
 * ``POST /api/recipes``: Bearer igual ao ``RECIPES_AGENT_TOKEN`` do site; corpo
   validado por ``recipeInputSchema`` (``shared/recipes.ts``). Exige ``category`` e
@@ -129,7 +129,7 @@ def _http_message(status: int, body: str) -> str:
     if status == 404:
         return "A rota do site não foi encontrada (HTTP 404). Confirme se /api/articles está implantada no ambiente escolhido."
     if status == 409:
-        return "Slug duplicado (HTTP 409). Gere um slug novo antes de repetir o envio."
+        return "Slug duplicado (HTTP 409). Confira o artigo existente antes de qualquer novo envio."
     if status == 422:
         return "Categoria ou tópico não cadastrado/aceito pelo site (HTTP 422). Verifique os registros existentes no Neon." + (f" Detalhe: {details}" if details else "")
     if status == 503:
