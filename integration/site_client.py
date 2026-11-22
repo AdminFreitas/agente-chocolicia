@@ -140,6 +140,7 @@ def _http_message(status: int, body: str) -> str:
 
 
 def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
+    """Envia uma vez. O site não garante Idempotency-Key; não repete POST ambíguo."""
     endpoint = resolve_endpoint(tipo)
     status = payload.get("status", "draft")
     token = select_token(status)
@@ -153,29 +154,25 @@ def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
         "X-Contract-Version": os.getenv("CONTRACT_VERSION", "1"),
         "X-Request-Id": str(uuid.uuid4()),
     }
-    retryable_statuses = {429, 500, 502, 504}
-    last_status: int | None = None
-    for attempt in range(1, 4):
+    try:
+        response = httpx.post(endpoint, json=body, headers=headers, timeout=30)
+    except httpx.TimeoutException as exc:
+        raise SiteAPIError(
+            "Timeout ao enviar ao site. O resultado pode ser incerto; verifique o slug no site antes de repetir."
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise SiteAPIError(
+            f"Falha de conexão com a API do site ({type(exc).__name__}). Nenhuma repetição automática foi feita."
+        ) from exc
+
+    if response.is_success:
         try:
-            response = httpx.post(endpoint, json=body, headers=headers, timeout=30)
-            if response.is_success:
-                try:
-                    return response.json()
-                except ValueError:
-                    return {"status": "sent", "http_status": response.status_code}
-            last_status = response.status_code
-            safe_body = _safe_response_text(response, token)
-            if response.status_code not in retryable_statuses:
-                raise SiteAPIError(_http_message(response.status_code, safe_body), response.status_code)
-            logger.warning("API do site HTTP %s; tentativa %s/3", response.status_code, attempt)
-        except SiteAPIError:
-            raise
-        except httpx.TimeoutException:
-            logger.warning("Timeout na API do site; tentativa %s/3", attempt)
-        except httpx.HTTPError as exc:
-            logger.warning("Falha de conexão com a API do site (%s); tentativa %s/3", type(exc).__name__, attempt)
-        if attempt < 3:
-            time.sleep(2 ** (attempt - 1))
-    if last_status is not None:
-        raise SiteAPIError(_http_message(last_status, ""), last_status)
-    raise SiteAPIError("A API do site não respondeu após três tentativas de conexão/timeout.")
+            return response.json()
+        except ValueError:
+            return {"status": "sent", "http_status": response.status_code}
+
+    safe_body = _safe_response_text(response, token)
+    message = _http_message(response.status_code, safe_body)
+    if response.status_code >= 500:
+        message += " Não repeti o POST para evitar duplicação; confira o slug antes de tentar novamente."
+    raise SiteAPIError(message, response.status_code)
