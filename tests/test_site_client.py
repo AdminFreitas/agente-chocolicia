@@ -153,14 +153,25 @@ class PostContentTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 401)
         self.assertEqual(post.call_count, 1)
 
-    def test_erro_5xx_e_repetido_ate_funcionar(self):
-        replies = [response(502), response(201, {"status": "draft"})]
+    def test_erro_5xx_nao_repete_post_ambiguo(self):
         with patch.dict("os.environ", self.ENV, clear=True), patch.object(
-            site_client.httpx, "post", side_effect=replies
-        ) as post, patch.object(site_client.time, "sleep"):
-            result = site_client.post_content(recipe_payload(), "receita", "brigadeiro")
-        self.assertEqual(result["status"], "draft")
-        self.assertEqual(post.call_count, 2)
+            site_client.httpx, "post", return_value=response(502)
+        ) as post:
+            with self.assertRaises(SiteAPIError) as caught:
+                site_client.post_content(recipe_payload(), "receita", "brigadeiro")
+        self.assertEqual(caught.exception.status_code, 502)
+        self.assertIn("Não repeti o POST", str(caught.exception))
+        self.assertEqual(post.call_count, 1)
+
+    def test_503_tem_mensagem_especifica_e_nao_repete(self):
+        with patch.dict("os.environ", self.ENV, clear=True), patch.object(
+            site_client.httpx, "post", return_value=response(503, {"error": "token não configurado"})
+        ) as post:
+            with self.assertRaises(SiteAPIError) as caught:
+                site_client.post_content(recipe_payload(), "receita", "brigadeiro")
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn("HTTP 503", str(caught.exception))
+        self.assertEqual(post.call_count, 1)
 
     def test_dica_informa_que_o_site_nao_tem_a_rota(self):
         payload = {"status": "draft", "type": "tip", "generationMeta": {"run_id": "run-2"}}
