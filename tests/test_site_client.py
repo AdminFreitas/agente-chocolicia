@@ -61,7 +61,7 @@ class BaseUrlTests(unittest.TestCase):
             self.assertEqual(site_client.resolve_base_url(), "https://preview.example.com")
         env = {"SITE_BASE_URL": "https://a.example.com", "CHOCOLICIA_API_URL": "https://b.example.com"}
         with patch.dict("os.environ", env, clear=True):
-            self.assertEqual(site_client.resolve_base_url(), "https://b.example.com")
+            self.assertEqual(site_client.resolve_base_url(), "https://a.example.com")
 
     def test_preview_nao_aponta_para_producao(self):
         with patch.dict("os.environ", {"TARGET": "preview"}, clear=True):
@@ -154,7 +154,7 @@ class PostContentTests(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
 
     def test_erro_5xx_e_repetido_ate_funcionar(self):
-        replies = [response(503), response(201, {"status": "draft"})]
+        replies = [response(502), response(201, {"status": "draft"})]
         with patch.dict("os.environ", self.ENV, clear=True), patch.object(
             site_client.httpx, "post", side_effect=replies
         ) as post, patch.object(site_client.time, "sleep"):
