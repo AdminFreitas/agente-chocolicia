@@ -54,13 +54,15 @@ class SiteAPIError(RuntimeError):
 
 
 def resolve_base_url() -> str:
-    """Origem do site: CHOCOLICIA_API_URL, depois SITE_BASE_URL (definida pelos workflows)."""
-    base = (os.getenv("CHOCOLICIA_API_URL") or os.getenv("SITE_BASE_URL") or DEFAULT_SITE_URL).strip().rstrip("/")
-    if os.getenv("TARGET", "").strip().lower() == "preview" and base == DEFAULT_SITE_URL:
-        raise SiteAPIError(
-            f"TARGET=preview não pode enviar ao site de produção ({base}); aponte CHOCOLICIA_API_URL "
-            "ou SITE_BASE_URL para o Preview, ou defina TARGET=producao."
-        )
+    """SITE_BASE_URL é a origem explícita selecionada pelo workflow."""
+    base = (os.getenv("SITE_BASE_URL") or os.getenv("CHOCOLICIA_API_URL") or DEFAULT_SITE_URL).strip().rstrip("/")
+    if not base:
+        raise SiteAPIError("SITE_BASE_URL não está configurada.")
+    if os.getenv("TARGET", "").strip().lower() == "preview":
+        from urllib.parse import urlparse
+        host = (urlparse(base).hostname or "").lower()
+        if host in {"chocolicia.site", "www.chocolicia.site"}:
+            raise SiteAPIError("TARGET=preview não pode enviar ao domínio de produção; configure SITE_BASE_URL para o Preview.")
     return base
 
 
@@ -72,15 +74,15 @@ def resolve_endpoint(tipo: str) -> str:
 
 
 def select_token(status: str) -> str:
-    """Token Bearer do envio; o valor deve ser igual ao RECIPES_AGENT_TOKEN do site."""
+    """Seleciona o Bearer do site; nunca usa CRON_SECRET."""
     if status == "published":
-        token = os.getenv("CHOCOLICIA_TOKEN_PUBLISH") or os.getenv("SITE_TOKEN_PUBLISH")
+        token = os.getenv("SITE_TOKEN_PUBLISH") or os.getenv("CHOCOLICIA_TOKEN_PUBLISH")
     else:
-        token = os.getenv("CHOCOLICIA_TOKEN_DRAFT") or os.getenv("SITE_TOKEN_DRAFT")
+        token = os.getenv("SITE_TOKEN_DRAFT") or os.getenv("CHOCOLICIA_TOKEN_DRAFT")
     if not token:
         raise SiteAPIError(
-            "Token Bearer ausente; configure CHOCOLICIA_TOKEN_DRAFT/CHOCOLICIA_TOKEN_PUBLISH "
-            "(ou SITE_TOKEN_DRAFT/SITE_TOKEN_PUBLISH) com o mesmo valor do RECIPES_AGENT_TOKEN do site."
+            "Token Bearer ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de "
+            "RECIPES_AGENT_TOKEN no site (compatibilidade: CHOCOLICIA_TOKEN_DRAFT)."
         )
     return token
 
@@ -110,6 +112,33 @@ def to_site_recipe_payload(payload: dict) -> dict:
     return body
 
 
+def _safe_response_text(response: httpx.Response, token: str) -> str:
+    """Extrai uma mensagem curta sem permitir que o servidor reflita o Bearer no log."""
+    body = (response.text or "").replace(token, "[REDACTED]")
+    return body[:600]
+
+
+def _http_message(status: int, body: str) -> str:
+    details = body.strip()
+    if status == 400:
+        return "Payload rejeitado (HTTP 400). Confira os campos e o contrato da API."
+    if status == 401:
+        return "A API do site não recebeu autenticação válida (HTTP 401). Confira o Bearer."
+    if status == 403:
+        return "A API do site recusou o token (HTTP 403). Confira se corresponde a RECIPES_AGENT_TOKEN."
+    if status == 404:
+        return "A rota do site não foi encontrada (HTTP 404). Confirme se /api/articles está implantada no ambiente escolhido."
+    if status == 409:
+        return "Slug duplicado (HTTP 409). Gere um slug novo antes de repetir o envio."
+    if status == 422:
+        return "Categoria ou tópico não cadastrado/aceito pelo site (HTTP 422). Verifique os registros existentes no Neon."
+    if status == 503:
+        return "A API do site está indisponível ou sem configuração obrigatória (HTTP 503)."
+    if status == 429:
+        return "A API do site limitou as requisições (HTTP 429)."
+    return f"API do site respondeu HTTP {status}." + (f" Detalhe: {details}" if details else "")
+
+
 def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
     endpoint = resolve_endpoint(tipo)
     status = payload.get("status", "draft")
@@ -124,29 +153,29 @@ def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
         "X-Contract-Version": os.getenv("CONTRACT_VERSION", "1"),
         "X-Request-Id": str(uuid.uuid4()),
     }
+    retryable_statuses = {429, 500, 502, 504}
+    last_status: int | None = None
     for attempt in range(1, 4):
         try:
             response = httpx.post(endpoint, json=body, headers=headers, timeout=30)
-            if response.status_code < 500:
-                if not response.is_success:
-                    if response.status_code == 404 and endpoint.endswith("/api/articles"):
-                        raise SiteAPIError(
-                            "O site não expõe POST /api/articles; faça deploy da versão do site com a rota de artigos no ambiente de destino.",
-                            404,
-                        )
-                    raise SiteAPIError(
-                        f"API do site respondeu HTTP {response.status_code}: {response.text[:1000]}",
-                        response.status_code,
-                    )
+            if response.is_success:
                 try:
                     return response.json()
                 except ValueError:
                     return {"status": "sent", "http_status": response.status_code}
-            logger.warning("API do site HTTP %s, tentativa %s/3", response.status_code, attempt)
+            last_status = response.status_code
+            safe_body = _safe_response_text(response, token)
+            if response.status_code not in retryable_statuses:
+                raise SiteAPIError(_http_message(response.status_code, safe_body), response.status_code)
+            logger.warning("API do site HTTP %s; tentativa %s/3", response.status_code, attempt)
         except SiteAPIError:
             raise
+        except httpx.TimeoutException:
+            logger.warning("Timeout na API do site; tentativa %s/3", attempt)
         except httpx.HTTPError as exc:
-            logger.warning("Falha de rede na API do site, tentativa %s/3: %s", attempt, exc)
+            logger.warning("Falha de conexão com a API do site (%s); tentativa %s/3", type(exc).__name__, attempt)
         if attempt < 3:
             time.sleep(2 ** (attempt - 1))
-    raise SiteAPIError("API do site indisponível após três tentativas.")
+    if last_status is not None:
+        raise SiteAPIError(_http_message(last_status, ""), last_status)
+    raise SiteAPIError("A API do site não respondeu após três tentativas de conexão/timeout.")
