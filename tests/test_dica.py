@@ -70,12 +70,13 @@ class DicaFlowTests(unittest.TestCase):
                 gerar_dica.gerar_dica("preparo")
         post.assert_not_called()
 
-    def test_slug_duplicado_409_tenta_com_sufixo(self):
-        with patch("httpx.post", side_effect=[resp(409, {"code": "duplicate_slug"}), resp(201)]) as post:
-            r = gerar_dica.gerar_dica("preparo")
-        self.assertEqual(post.call_count, 2)
-        self.assertNotEqual(post.call_args_list[1].kwargs["json"]["slug"], "como-temperar-chocolate-sem-erro")
-        self.assertTrue(r["enviado"])
+    def test_slug_duplicado_409_interrompe_sem_criar_alternativo(self):
+        with patch("httpx.post", return_value=resp(409, {"code": "duplicate_slug"})) as post:
+            with self.assertRaises(SiteAPIError) as caught:
+                gerar_dica.gerar_dica("preparo")
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("Não criei um slug alternativo", str(caught.exception))
+        self.assertEqual(post.call_count, 1)
 
     def test_erro_401_nao_tenta_novamente(self):
         with patch("httpx.post", return_value=resp(401)) as post:
