@@ -130,13 +130,14 @@ def _cover_do_ambiente() -> dict | None:
 
 
 def _status(target: str) -> str:
-    if target == "producao" and os.getenv("AGENT_PHASE", "0") != "0":
-        return "published"
+    """Dicas editoriais são sempre rascunhos; target escolhe apenas o host."""
     return "draft"
 
 
 def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_run: bool = False) -> dict:
     """Gera, valida e (se não for dry-run) envia uma dica. Lança exceção em qualquer falha."""
+    if target not in {"preview", "producao"}:
+        raise DicaInvalida("target deve ser 'preview' ou 'producao'.")
     topico = escolher_topico(assunto)
     angulo = random.choice(TOPICOS[topico][1])
     resposta = llm_service.gerar_texto_com_metadados("criacao", montar_prompt(topico, angulo))
