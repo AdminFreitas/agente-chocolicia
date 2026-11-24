@@ -42,6 +42,13 @@ def test_resposta_v1_sem_estado_e_rejeitada():
         cliente(site).criar_receita(payload(), run_id="run-1")
 
 
+@pytest.mark.parametrize("status_recebido", ["published", "processing"])
+def test_criacao_v1_rascunho_rejeita_status_diferente(status_recebido):
+    site = Site(resp(201, {**OK_201, "status": status_recebido}))
+    with pytest.raises(CS.ErroSite, match="fora do contrato v1"):
+        cliente(site).criar_receita(payload(status="draft"), run_id="run-status")
+    assert len(site.posts()) == 1
+
 def test_publicar_usa_o_token_de_escopo_publish():
     s = Site(resp(201, {**OK_201, "status": "published"})); c = cliente(s, fase=1)
     assert c.criar_receita(payload(status="published"), run_id="run-1").status == "published"
