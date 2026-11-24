@@ -37,10 +37,10 @@ O pipeline do PR foi escrito para o contrato `v1`, que depende de `/api/taxonomy
   `AGENT_IMAGE_GENERATION_ENABLED=false`.
 - Removido o bloqueio incondicional de produção por "tetos de custo" do `compose.py` do PR; no
   legacy o teto efetivo é **uma receita por execução**. O v1 em produção continua bloqueado.
-- Duplicatas: `claim_topic` no banco do agente (`AGENT_DATABASE_URL`) + slug único do site.
+- Duplicatas: quando `AGENT_DATABASE_URL` está configurada, `claim_topic` mantém histórico persistente de pautas e execuções. Sem essa variável, o pipeline usa histórico em memória e a API do site continua sendo a proteção final contra slug duplicado (HTTP 409). Nesse modo, não há histórico persistente de execuções nem deduplicação de imagens entre execuções.
 
 ## Segredos (só os nomes)
-`RECIPES_AGENT_TOKEN`, `AGENT_DATABASE_URL`, `BRAVE_SEARCH_API_KEY`, ao menos uma chave de LLM
+`RECIPES_AGENT_TOKEN`, `BRAVE_SEARCH_API_KEY`, ao menos uma chave de LLM
 (`GEMINI_API_KEY`/`GROQ_API_KEY`/`OPENROUTER_API_KEY`) e uma de imagens (`PEXELS_API_KEY`/`PIXABAY_API_KEY`).
 O job usa `environment: production`; se os segredos estiverem no ambiente do repositório, é o que os expõe.
 

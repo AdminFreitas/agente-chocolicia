@@ -74,9 +74,12 @@ jobs:
         run: |
           set -euo pipefail
           faltando=()
-          for name in RECIPES_AGENT_TOKEN AGENT_DATABASE_URL BRAVE_SEARCH_API_KEY; do
+          for name in RECIPES_AGENT_TOKEN BRAVE_SEARCH_API_KEY; do
             [[ -n "${!name:-}" ]] || faltando+=("$name")
           done
+          if [[ -z "${AGENT_DATABASE_URL:-}" ]]; then
+            echo "::warning::AGENT_DATABASE_URL ausente: publicação seguirá sem histórico persistente do agente; o site ainda valida slug duplicado."
+          fi
           # Ao menos um provedor de LLM e um de imagens de banco.
           [[ -n "${GEMINI_API_KEY:-}${GROQ_API_KEY:-}${OPENROUTER_API_KEY:-}" ]] || faltando+=("GEMINI_API_KEY|GROQ_API_KEY|OPENROUTER_API_KEY")
           [[ -n "${PEXELS_API_KEY:-}${PIXABAY_API_KEY:-}" ]] || faltando+=("PEXELS_API_KEY|PIXABAY_API_KEY")

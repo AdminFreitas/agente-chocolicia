@@ -94,8 +94,6 @@ def main(argv: list[str] | None = None) -> int:
             classificacao = services["catalogo"].selecionar_subcategoria(fase)
             subcategoria = classificacao.get("subcategory_slug")
         store = runtime.store
-        if not args.dry_run and store is None:
-            raise ValueError("AGENT_DATABASE_URL é necessário para bloquear duplicatas")
         if args.assunto == "automatico":
             tema = _gerar_tema_receita(services["gerar"], store, classificacao["category_name"])
         else:
@@ -108,19 +106,21 @@ def main(argv: list[str] | None = None) -> int:
             "tipo_conteudo": "receita", "origem": "manual",
         }
         if not args.dry_run:
-            from agente_receitas.runtime_adapters.persistence import DuplicateContent
+            if store is not None:
+                from agente_receitas.runtime_adapters.persistence import DuplicateContent
 
-            store.start_run(run_id, "recipe", args.target, topic_slug)
-            try:
-                store.claim_topic("recipe", topic_slug, run_id)
-            except DuplicateContent:
-                store.update_run(run_id, "rejected", "pauta",
-                                 {"rejection_code": "DUP-HIST", "motivo": "topic_slug já reservado"})
-                return _saida({"estado": "rejected", "etapa": "pauta", "codigo": "DUP-HIST",
-                               "motivos": ["topic_slug já reservado"]}, 1)
+                store.start_run(run_id, "recipe", args.target, topic_slug)
+                try:
+                    store.claim_topic("recipe", topic_slug, run_id)
+                except DuplicateContent:
+                    store.update_run(run_id, "rejected", "pauta",
+                                     {"rejection_code": "DUP-HIST", "motivo": "topic_slug já reservado"})
+                    return _saida({"estado": "rejected", "etapa": "pauta", "codigo": "DUP-HIST",
+                                   "motivos": ["topic_slug já reservado"]}, 1)
             if not legacy and services["catalogo"].existe(topic_slug, tema):
-                store.update_run(run_id, "rejected", "pauta",
-                                 {"rejection_code": "SIM-04", "motivo": "conteúdo já existe no site"})
+                if store is not None:
+                    store.update_run(run_id, "rejected", "pauta",
+                                     {"rejection_code": "SIM-04", "motivo": "conteúdo já existe no site"})
                 return _saida({"estado": "rejected", "etapa": "pauta", "codigo": "SIM-04",
                                "motivos": ["conteúdo já existe no site"]}, 1)
         resultado = gerar_receita(
@@ -129,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             idempotency_key=topic_slug,
         )
         envio = resultado.envio
-        if not args.dry_run:
+        if not args.dry_run and store is not None:
             detalhes = {"codigo": resultado.codigo}
             if envio is not None:
                 detalhes.update({"remote_id": envio.id, "slug": envio.slug,

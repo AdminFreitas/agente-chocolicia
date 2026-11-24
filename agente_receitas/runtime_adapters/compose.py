@@ -56,8 +56,9 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
     validar_configuracao_modelos(["criacao", "reparo", "revisao", "extracao", "seo"])
     if not dry_run and settings.site_contract != "legacy" and not settings.site_token_draft:
         raise ConfigurationError("SITE_TOKEN_DRAFT ausente")
-    if not dry_run and not settings.database_url:
-        raise ConfigurationError("DATABASE_URL_AGENTE ausente para bloqueio de duplicatas")
+    # A persistência do agente é opcional no modo legacy: sem banco, o site
+    # continua protegendo slugs duplicados na própria API. Quando configurado,
+    # o PostgresStore mantém histórico, reservas de pauta e uso de imagens.
     store = None
     if settings.database_url and not dry_run:
         store = PostgresStore(settings.database_url)
