@@ -1,0 +1,13 @@
+{
+  "versao": "1.0.0",
+  "fonte": "docs/07-PUBLICACAO.md §3 (cadência dos artigos) e §10; docs/06-INTEGRACAO.md §12 (limites diários)",
+  "nota": "Só valores que a doc informa. Os tetos de custo estão 'a definir' (07 §10: definir antes da Fase 0). A doc diz que os artigos começam 'a partir da Fase 1'.",
+  "artigos": {
+    "dica_por_semana": 2,
+    "tecnica_por_semana": 1,
+    "materia_por_quinzena": 1,
+    "a_partir_da_fase": 1
+  },
+  "limite_diario_inicial": {"fase_0_execucoes": 3, "fase_1_receitas": 1, "fase_2_receitas": 2},
+  "tetos_custo": "a definir"
+}

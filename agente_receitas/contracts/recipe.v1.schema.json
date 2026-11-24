@@ -1,0 +1,610 @@
+{
+  "$defs": {
+    "CoverGenerate": {
+      "additionalProperties": false,
+      "properties": {
+        "imagePrompt": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Imageprompt",
+          "type": "string"
+        },
+        "mode": {
+          "const": "generate",
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "imagePrompt"
+      ],
+      "title": "CoverGenerate",
+      "type": "object"
+    },
+    "CoverStock": {
+      "additionalProperties": false,
+      "properties": {
+        "attributionText": {
+          "maxLength": 400,
+          "title": "Attributiontext",
+          "type": "string"
+        },
+        "author": {
+          "maxLength": 200,
+          "title": "Author",
+          "type": "string"
+        },
+        "license": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "License",
+          "type": "string"
+        },
+        "mode": {
+          "const": "stock",
+          "title": "Mode",
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "sourceImageUrl": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^https://",
+          "title": "Sourceimageurl",
+          "type": "string"
+        },
+        "sourcePageUrl": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^https://",
+          "title": "Sourcepageurl",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "provider",
+        "sourceImageUrl",
+        "sourcePageUrl",
+        "author",
+        "license",
+        "attributionText"
+      ],
+      "title": "CoverStock",
+      "type": "object"
+    },
+    "FaqV1": {
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Answer",
+          "type": "string"
+        },
+        "question": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question",
+        "answer"
+      ],
+      "title": "FaqV1",
+      "type": "object"
+    },
+    "FonteV1": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "title": "Date",
+          "type": "string"
+        },
+        "domain": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Domain",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "url",
+        "date"
+      ],
+      "title": "FonteV1",
+      "type": "object"
+    },
+    "GenerationMetaV1": {
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Phase",
+          "type": "integer"
+        },
+        "prompt_version": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/FonteV1"
+          },
+          "maxItems": 20,
+          "title": "Sources",
+          "type": "array"
+        },
+        "technique_flags": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Technique Flags",
+          "type": "array"
+        },
+        "topic_slug": {
+          "maxLength": 180,
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Topic Slug",
+          "type": "string"
+        },
+        "validators_version": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Validators Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "topic_slug",
+        "prompt_version",
+        "phase",
+        "validators_version"
+      ],
+      "title": "GenerationMetaV1",
+      "type": "object"
+    },
+    "ItemIngredienteV1": {
+      "additionalProperties": false,
+      "properties": {
+        "ingredientSlug": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ingredientslug"
+        },
+        "name": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 180,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "quantity": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Quantity",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "g",
+            "kg",
+            "ml",
+            "l",
+            "xícara",
+            "colher de sopa",
+            "colher de chá",
+            "unidade",
+            "pitada",
+            "dente",
+            "fatia",
+            "lata",
+            "caixinha",
+            "maço",
+            "ramo"
+          ],
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "quantity",
+        "unit"
+      ],
+      "title": "ItemIngredienteV1",
+      "type": "object"
+    },
+    "PassoV1": {
+      "additionalProperties": false,
+      "properties": {
+        "instruction": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Instruction",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "instruction"
+      ],
+      "title": "PassoV1",
+      "type": "object"
+    },
+    "SecaoIngredientesV1": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ItemIngredienteV1"
+          },
+          "maxItems": 80,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "items"
+      ],
+      "title": "SecaoIngredientesV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "aiModel": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Aimodel",
+      "type": "string"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "minLength": 2,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Category"
+    },
+    "collections": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Collections",
+      "type": "array"
+    },
+    "cookTimeMin": {
+      "anyOf": [
+        {
+          "maximum": 1440,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cooktimemin"
+    },
+    "cover": {
+      "discriminator": {
+        "mapping": {
+          "generate": "#/$defs/CoverGenerate",
+          "stock": "#/$defs/CoverStock"
+        },
+        "propertyName": "mode"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CoverStock"
+        },
+        {
+          "$ref": "#/$defs/CoverGenerate"
+        }
+      ],
+      "title": "Cover"
+    },
+    "coverImageAlt": {
+      "maxLength": 240,
+      "minLength": 8,
+      "title": "Coverimagealt",
+      "type": "string"
+    },
+    "coverImageUrl": {
+      "anyOf": [
+        {
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Coverimageurl"
+    },
+    "diet": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Diet",
+      "type": "array"
+    },
+    "difficulty": {
+      "enum": [
+        "Fácil",
+        "Média",
+        "Difícil"
+      ],
+      "title": "Difficulty",
+      "type": "string"
+    },
+    "excerpt": {
+      "maxLength": 160,
+      "minLength": 20,
+      "title": "Excerpt",
+      "type": "string"
+    },
+    "faq": {
+      "items": {
+        "$ref": "#/$defs/FaqV1"
+      },
+      "maxItems": 12,
+      "title": "Faq",
+      "type": "array"
+    },
+    "generationMeta": {
+      "$ref": "#/$defs/GenerationMetaV1"
+    },
+    "ingredients": {
+      "items": {
+        "$ref": "#/$defs/SecaoIngredientesV1"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Ingredients",
+      "type": "array"
+    },
+    "intro": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Intro"
+    },
+    "occasions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Occasions",
+      "type": "array"
+    },
+    "prepTimeMin": {
+      "maximum": 1440,
+      "minimum": 1,
+      "title": "Preptimemin",
+      "type": "integer"
+    },
+    "restTimeMin": {
+      "anyOf": [
+        {
+          "maximum": 10080,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resttimemin"
+    },
+    "secondarySubcategorySlugs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 2,
+      "title": "Secondarysubcategoryslugs",
+      "type": "array"
+    },
+    "servings": {
+      "maximum": 500,
+      "minimum": 1,
+      "title": "Servings",
+      "type": "integer"
+    },
+    "slug": {
+      "anyOf": [
+        {
+          "maxLength": 180,
+          "minLength": 3,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Slug"
+    },
+    "status": {
+      "default": "draft",
+      "enum": [
+        "draft",
+        "published"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/PassoV1"
+      },
+      "maxItems": 20,
+      "minItems": 4,
+      "title": "Steps",
+      "type": "array"
+    },
+    "storageNotes": {
+      "anyOf": [
+        {
+          "maxLength": 3000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Storagenotes"
+    },
+    "subcategorySlug": {
+      "maxLength": 120,
+      "minLength": 1,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "title": "Subcategoryslug",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Tags",
+      "type": "array"
+    },
+    "tips": {
+      "items": {
+        "maxLength": 1000,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 5,
+      "title": "Tips",
+      "type": "array"
+    },
+    "title": {
+      "maxLength": 180,
+      "minLength": 5,
+      "title": "Title",
+      "type": "string"
+    },
+    "yieldLabel": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Yieldlabel"
+    }
+  },
+  "required": [
+    "title",
+    "excerpt",
+    "subcategorySlug",
+    "prepTimeMin",
+    "servings",
+    "difficulty",
+    "ingredients",
+    "steps",
+    "cover",
+    "coverImageAlt",
+    "aiModel",
+    "generationMeta"
+  ],
+  "title": "ReceitaV1",
+  "type": "object",
+  "x-contract-version": "1",
+  "x-origem": "gerado pelo agente a partir de integration/contratos.py (NÃO é a cópia canônica do site)"
+}

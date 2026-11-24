@@ -1,0 +1,49 @@
+{
+  "versao": "1.0.0",
+  "fonte": "docs/02-PESQUISA.md §3.1 (fontes), §4.2 (consultas e limites), §5.3 (mínimos); docs/PESQUISA-RECEITAS.md §4 e §6.1",
+  "nota": "Os pesos são ponto de partida (02 §3.1) e devem ser recalibrados depois das primeiras semanas. A lista aprovada vem de docs/02 §3.1; a PESQUISA-RECEITAS §3 não traz a lista.",
+  "fontes": [
+    {"id": "tudogostoso", "nome": "TudoGostoso", "dominio": "tudogostoso.com.br", "tipo": "Receitas de usuários", "peso": "medio", "peso_nota": "Médio (varia por receita)", "ativa": true},
+    {"id": "panelinha", "nome": "Panelinha", "dominio": "panelinha.com.br", "tipo": "Receitas testadas por equipe", "peso": "alto", "peso_nota": "Alto", "ativa": true},
+    {"id": "receitasnestle", "nome": "Receitas Nestlé", "dominio": "receitasnestle.com.br", "tipo": "Receitas de marca testadas", "peso": "alto", "peso_nota": "Alto (atenção ao viés de produto)", "ativa": true},
+    {"id": "receiteria", "nome": "Receiteria", "dominio": "receiteria.com.br", "tipo": "Receitas com passo a passo", "peso": "medio", "peso_nota": "Médio", "ativa": true},
+    {"id": "saboresajinomoto", "nome": "Sabores Ajinomoto", "dominio": null, "tipo": "Portal de marca", "peso": "medio", "peso_nota": "Médio", "ativa": false, "pendencia": "Domínio a confirmar (02 §3.1 e §12); inativa até a confirmação"},
+    {"id": "receitasglobo", "nome": "Receitas Globo", "dominio": "receitas.globo.com", "tipo": "Receitas da TV e de chefs", "peso": "medio", "peso_nota": "Médio", "ativa": true},
+    {"id": "guiadacozinha", "nome": "Guia da Cozinha", "dominio": "guiadacozinha.com.br", "tipo": "Receitas práticas", "peso": "medio", "peso_nota": "Médio", "ativa": true},
+    {"id": "cybercook", "nome": "CyberCook", "dominio": "cybercook.com.br", "tipo": "Portal clássico", "peso": "medio", "peso_nota": "Médio", "ativa": true},
+    {"id": "tudoreceitas", "nome": "Tudo Receitas", "dominio": "tudoreceitas.com", "tipo": "Receitas com passo a passo", "peso": "baixo_medio", "peso_nota": "Baixo a médio", "ativa": true},
+    {"id": "receitasdeminuto", "nome": "Receitas de Minuto", "dominio": "receitasdeminuto.com", "tipo": "Receitas em vídeo", "peso": "baixo_medio", "peso_nota": "Baixo a médio", "ativa": true},
+    {"id": "presuntovegetariano", "nome": "Presunto Vegetariano", "dominio": "presuntovegetariano.com.br", "tipo": "Vegetariano e vegano", "peso": "medio", "peso_nota": "Médio (nicho)", "ativa": true}
+  ],
+  "fontes_tecnicas": {"status": "a validar", "fonte": "02 §3.2", "itens": []},
+  "consultas_modelo": {
+    "fonte": "02 §4.2 passo 1",
+    "receita": [
+      "{prato} receita",
+      "{prato} como fazer passo a passo",
+      "{prato} ponto, textura, dicas",
+      "{prato} substituições"
+    ],
+    "tecnica": ["como {tecnica} {produto} temperatura"]
+  },
+  "limites_por_pauta": {
+    "fonte": "02 §4.2 (tabela de limites)",
+    "max_buscas": 8,
+    "max_paginas": 6,
+    "timeout_min": 10,
+    "tentativas_por_busca": 2,
+    "consultas_min": 3,
+    "consultas_max": 5
+  },
+  "minimo_fontes": {
+    "fonte": "02 §5.3; PESQUISA-RECEITAS §4 e §12",
+    "receita": {"fontes": 3, "dominios_distintos": true, "peso_alto": 1, "fonte_tecnica": 0},
+    "dica": {"fontes": 2, "fonte_tecnica": 1, "nota": "1 quando envolver segurança ou conservação"},
+    "tecnica": {"fontes": 2, "fonte_tecnica": 1},
+    "materia": {"fontes": 3, "fonte_tecnica": 2}
+  },
+  "analise": {
+    "fonte": "PESQUISA-RECEITAS §6.1 passo 4 (valor inicial)",
+    "margem_outlier": 0.25
+  }
+}

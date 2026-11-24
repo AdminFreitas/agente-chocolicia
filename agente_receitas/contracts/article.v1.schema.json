@@ -1,0 +1,385 @@
+{
+  "$defs": {
+    "CoverGenerate": {
+      "additionalProperties": false,
+      "properties": {
+        "imagePrompt": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Imageprompt",
+          "type": "string"
+        },
+        "mode": {
+          "const": "generate",
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "imagePrompt"
+      ],
+      "title": "CoverGenerate",
+      "type": "object"
+    },
+    "CoverStock": {
+      "additionalProperties": false,
+      "properties": {
+        "attributionText": {
+          "maxLength": 400,
+          "title": "Attributiontext",
+          "type": "string"
+        },
+        "author": {
+          "maxLength": 200,
+          "title": "Author",
+          "type": "string"
+        },
+        "license": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "License",
+          "type": "string"
+        },
+        "mode": {
+          "const": "stock",
+          "title": "Mode",
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "sourceImageUrl": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^https://",
+          "title": "Sourceimageurl",
+          "type": "string"
+        },
+        "sourcePageUrl": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^https://",
+          "title": "Sourcepageurl",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "provider",
+        "sourceImageUrl",
+        "sourcePageUrl",
+        "author",
+        "license",
+        "attributionText"
+      ],
+      "title": "CoverStock",
+      "type": "object"
+    },
+    "FonteArtigoV1": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "url"
+      ],
+      "title": "FonteArtigoV1",
+      "type": "object"
+    },
+    "FonteV1": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "title": "Date",
+          "type": "string"
+        },
+        "domain": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Domain",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "url",
+        "date"
+      ],
+      "title": "FonteV1",
+      "type": "object"
+    },
+    "GenerationMetaV1": {
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Phase",
+          "type": "integer"
+        },
+        "prompt_version": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/FonteV1"
+          },
+          "maxItems": 20,
+          "title": "Sources",
+          "type": "array"
+        },
+        "technique_flags": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Technique Flags",
+          "type": "array"
+        },
+        "topic_slug": {
+          "maxLength": 180,
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Topic Slug",
+          "type": "string"
+        },
+        "validators_version": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Validators Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "topic_slug",
+        "prompt_version",
+        "phase",
+        "validators_version"
+      ],
+      "title": "GenerationMetaV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "aiModel": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Aimodel",
+      "type": "string"
+    },
+    "bodyMd": {
+      "minLength": 1,
+      "title": "Bodymd",
+      "type": "string"
+    },
+    "cover": {
+      "discriminator": {
+        "mapping": {
+          "generate": "#/$defs/CoverGenerate",
+          "stock": "#/$defs/CoverStock"
+        },
+        "propertyName": "mode"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CoverStock"
+        },
+        {
+          "$ref": "#/$defs/CoverGenerate"
+        }
+      ],
+      "title": "Cover"
+    },
+    "coverImageAlt": {
+      "maxLength": 240,
+      "minLength": 8,
+      "title": "Coverimagealt",
+      "type": "string"
+    },
+    "coverImageUrl": {
+      "anyOf": [
+        {
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Coverimageurl"
+    },
+    "excerpt": {
+      "maxLength": 160,
+      "minLength": 20,
+      "title": "Excerpt",
+      "type": "string"
+    },
+    "generationMeta": {
+      "$ref": "#/$defs/GenerationMetaV1"
+    },
+    "relatedTopics": {
+      "items": {
+        "maxLength": 120,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 6,
+      "title": "Relatedtopics",
+      "type": "array"
+    },
+    "slug": {
+      "anyOf": [
+        {
+          "maxLength": 180,
+          "minLength": 3,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Slug"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/FonteArtigoV1"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "status": {
+      "default": "draft",
+      "enum": [
+        "draft",
+        "published"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "structured": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Structured"
+    },
+    "subcategorySlug": {
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Subcategoryslug"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Tags",
+      "type": "array"
+    },
+    "tipTopic": {
+      "anyOf": [
+        {
+          "maxLength": 60,
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tiptopic"
+    },
+    "title": {
+      "maxLength": 180,
+      "minLength": 5,
+      "title": "Title",
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "technique",
+        "tip",
+        "feature"
+      ],
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "title",
+    "excerpt",
+    "bodyMd",
+    "cover",
+    "coverImageAlt",
+    "aiModel",
+    "generationMeta"
+  ],
+  "title": "ArtigoV1",
+  "type": "object",
+  "x-contract-version": "1",
+  "x-origem": "gerado pelo agente a partir de integration/contratos.py (NÃO é a cópia canônica do site)"
+}
