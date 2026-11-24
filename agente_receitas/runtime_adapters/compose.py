@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from .config import Settings, ConfigurationError
-from .search import BraveSearch
+from .search import BraveSearch, TavilySearch
 from .site import build_site_client
 from .catalog import SiteCatalog, SiteCatalogLegado
 from .persistence import PostgresStore
@@ -47,7 +47,7 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
             raise ConfigurationError("RECIPES_AGENT_TOKEN ausente para publicar em produção")
     elif settings.environment == "production":
         raise ConfigurationError("AGENT_ENV=production exige target=production")
-    if settings.search_provider != "brave":
+    if settings.search_provider not in {"brave", "tavily"}:
         raise ConfigurationError(
             f"SEARCH_PROVIDER não suportado: {settings.search_provider}"
         )
@@ -76,9 +76,10 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
             settings.site_base_url, settings.site_token_draft,
             timeout=settings.request_timeout,
         )
-    search = BraveSearch(
-        settings.brave_api_key, timeout=settings.request_timeout
-    )
+    if settings.search_provider == "tavily":
+        search = TavilySearch(settings.tavily_api_key, timeout=settings.request_timeout)
+    else:
+        search = BraveSearch(settings.brave_api_key, timeout=settings.request_timeout)
     from agente_receitas.services.llm_cliente import gerar_padrao
 
     def generate(task: str, prompt: str, *, familia_excluida: str | None = None):
