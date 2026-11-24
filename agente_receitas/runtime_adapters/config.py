@@ -57,6 +57,7 @@ class Settings:
     database_url: str
     search_provider: str
     brave_api_key: str
+    tavily_api_key: str
     llm_provider: str
     llm_api_key: str
     llm_base_url: str
@@ -120,6 +121,10 @@ class Settings:
                 models[task] = {"model": model, "family": family}
         if enabled and search == "brave" and not os.getenv("BRAVE_SEARCH_API_KEY"):
             raise ConfigurationError("BRAVE_SEARCH_API_KEY ausente")
+        if enabled and search == "tavily" and not os.getenv("TAVILY_API_KEY"):
+            raise ConfigurationError("TAVILY_API_KEY ausente")
+        if search not in {"brave", "tavily"}:
+            raise ConfigurationError(f"SEARCH_PROVIDER não suportado: {search}")
         ollama_base = (
             os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_URL")
             or "http://127.0.0.1:11434"
@@ -137,6 +142,7 @@ class Settings:
             database_url=(os.getenv("AGENT_DATABASE_URL") or os.getenv("DATABASE_URL_AGENTE", "")).strip(),
             search_provider=search,
             brave_api_key=os.getenv("BRAVE_SEARCH_API_KEY", "").strip(),
+            tavily_api_key=os.getenv("TAVILY_API_KEY", "").strip(),
             llm_provider=provider,
             llm_api_key=os.getenv("LLM_API_KEY", "").strip() or ("ollama-local" if provider == "ollama" else ""),
             llm_base_url=llm_base_url,
