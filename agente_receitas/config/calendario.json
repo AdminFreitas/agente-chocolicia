@@ -1,0 +1,18 @@
+{
+  "versao": "1.0.0",
+  "fonte": "docs/02-PESQUISA.md §3.3 (calendário editorial brasileiro); slugs de ocasião de docs/04 §6.1",
+  "nota": "A doc lista as datas comemorativas, mas não informa datas exatas nem a antecedência da pauta. Nenhuma data foi inventada: todos os campos 'data' e 'antecedencia_semanas' estão 'a definir'. Enquanto forem 'a definir', a sazonalidade não pontua (pendência).",
+  "formato_data": "'a definir' | 'AAAA-MM-DD' (data do ano corrente) | 'MM-DD' (data fixa todo ano)",
+  "antecedencia_semanas": "a definir",
+  "antecedencia_fonte": "02 §4.1: 'a pauta de uma data começa algumas semanas antes' (número não informado)",
+  "datas": [
+    {"nome": "Carnaval", "ocasiao_slug": "carnaval", "data": "a definir"},
+    {"nome": "Páscoa", "ocasiao_slug": "pascoa", "data": "a definir"},
+    {"nome": "Dia das Mães", "ocasiao_slug": "dia-das-maes", "data": "a definir"},
+    {"nome": "Festas Juninas", "ocasiao_slug": "festa-junina", "data": "a definir"},
+    {"nome": "Dia dos Namorados", "ocasiao_slug": "dia-dos-namorados", "data": "a definir"},
+    {"nome": "Dia das Crianças", "ocasiao_slug": "dia-das-criancas", "data": "a definir"},
+    {"nome": "Natal", "ocasiao_slug": "natal", "data": "a definir"},
+    {"nome": "Ano-Novo", "ocasiao_slug": "ano-novo", "data": "a definir"}
+  ]
+}

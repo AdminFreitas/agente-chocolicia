@@ -1,0 +1,125 @@
+name: Publicar receita (pipeline Python, modo legacy)
+
+# Publica DIRETAMENTE em produção (sem dry-run, rascunho ou aprovação) por
+# POST /api/recipes do site atual. Documentação: agente_receitas/README-LEGACY.md
+#
+# AGENDAMENTO: desativado até a primeira publicação manual ser validada.
+# Para ativar o cron diário, descomente o bloco `schedule` (08h em Brasília = 11h UTC)
+# e pause ANTES o cron /api/recipes/generate-daily do Vercel e o workflow
+# gerar-receitas.yml (ambos geram receitas e duplicariam a publicação).
+on:
+  # schedule:
+  #   - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      assunto:
+        description: "Tema da receita (automatico deixa o agente escolher)"
+        type: string
+        default: automatico
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publicar-receita-legacy
+  cancel-in-progress: false
+
+jobs:
+  receita:
+    # Execução manual sempre roda; o cron (quando ativado) respeita AGENT_ENABLED.
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.AGENT_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      PYTHON_DOTENV_DISABLED: "1"
+      AGENT_ENABLED: "true"
+      AGENT_ENV: production
+      AGENT_PHASE: "1"
+      AGENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      TARGET: production
+      DRY_RUN: "false"
+      AGENT_PUBLISHING_ENABLED: "true"
+      SITE_CONTRACT: legacy
+      SITE_BASE_URL: https://www.chocolicia.site
+      ASSUNTO: ${{ inputs.assunto || 'automatico' }}
+      SEARCH_PROVIDER: brave
+      # Sem POST /api/uploads no site, a capa vem de banco de imagens (stock).
+      AGENT_IMAGE_GENERATION_ENABLED: "false"
+      RECIPES_AGENT_TOKEN: ${{ secrets.RECIPES_AGENT_TOKEN }}
+      AGENT_DATABASE_URL: ${{ secrets.AGENT_DATABASE_URL }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependências
+        run: python -m pip install -r requirements.txt
+
+      - name: Conferir configuração (somente presença, nunca valores)
+        shell: bash
+        run: |
+          set -euo pipefail
+          faltando=()
+          for name in RECIPES_AGENT_TOKEN AGENT_DATABASE_URL BRAVE_SEARCH_API_KEY; do
+            [[ -n "${!name:-}" ]] || faltando+=("$name")
+          done
+          # Ao menos um provedor de LLM e um de imagens de banco.
+          [[ -n "${GEMINI_API_KEY:-}${GROQ_API_KEY:-}${OPENROUTER_API_KEY:-}" ]] || faltando+=("GEMINI_API_KEY|GROQ_API_KEY|OPENROUTER_API_KEY")
+          [[ -n "${PEXELS_API_KEY:-}${PIXABAY_API_KEY:-}" ]] || faltando+=("PEXELS_API_KEY|PIXABAY_API_KEY")
+          if (( ${#faltando[@]} )); then
+            echo "::error::Configuração ausente: ${faltando[*]}"
+            exit 1
+          fi
+
+      - name: Gerar e publicar a receita em produção
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          set +e
+          python rodar_receita.py --target production --assunto "$ASSUNTO" > output/resultado-receita.json
+          codigo=$?
+          set -e
+          # O JSON já vem sem segredos (redação feita no CLI).
+          python -c "import json;d=json.load(open('output/resultado-receita.json',encoding='utf-8-sig'));print(json.dumps({k:d.get(k) for k in ('estado','etapa','codigo','motivos','erro','motivo','publicacao')},ensure_ascii=False))"
+          exit $codigo
+
+      - name: Confirmar resposta da API e página pública
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug=$(python - <<'PY'
+          import json, sys
+          d = json.load(open("output/resultado-receita.json", encoding="utf-8-sig"))
+          pub = d.get("publicacao") or {}
+          if d.get("estado") != "published" or pub.get("status") != "published" or not pub.get("slug"):
+              sys.exit("A API não confirmou a publicação (estado=%s)." % d.get("estado"))
+          print(pub["slug"])
+          PY
+          )
+          url="https://www.chocolicia.site/receitas/${slug}"
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
+            [[ "$code" == "200" ]] && break
+            sleep 20
+          done
+          [[ "$code" == "200" ]] || { echo "::error::Página pública respondeu ${code}: ${url}"; exit 1; }
+          {
+            echo "### Receita publicada"
+            echo "- Slug: ${slug}"
+            echo "- Página pública: ${url}"
+          } >> "$GITHUB_STEP_SUMMARY"

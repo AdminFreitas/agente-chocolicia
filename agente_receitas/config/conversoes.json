@@ -1,0 +1,21 @@
+{
+  "versao": "1.0.0",
+  "fonte": "docs/PESQUISA-RECEITAS.md §5.2 (tabela de conversão) e §5.3 (ovos)",
+  "conferido_contra_tabelas_publicadas": false,
+  "nota": "Valores iniciais de referência. A doc (§5.2) exige conferência única contra tabelas publicadas; até lá este arquivo não está conferido. 'aproximado' = a doc diz 'cerca de'.",
+  "generico": {
+    "xicara_cha": {"ml": 240, "obs": "Padrão de receituário brasileiro"},
+    "colher_sopa": {"ml": 15, "obs": "Rasa ou nivelada, conforme a receita"},
+    "colher_cha": {"ml": 5}
+  },
+  "por_ingrediente": [
+    {"ingrediente": "leite condensado", "unidade": "lata", "g": 395, "aproximado": false, "obs": "Marcas variam pouco"},
+    {"ingrediente": "creme de leite", "unidade": "caixinha", "g": 200, "aproximado": false},
+    {"ingrediente": "creme de leite", "unidade": "lata", "g": 300, "aproximado": false},
+    {"ingrediente": "farinha de trigo", "unidade": "xicara_cha", "g": 120, "aproximado": true, "obs": "Varia com o peso e a peneira"},
+    {"ingrediente": "açúcar refinado", "unidade": "xicara_cha", "g": 180, "aproximado": true, "obs": "Varia com o tipo de açúcar"}
+  ],
+  "unidades_de_referencia": [
+    {"ingrediente": "ovo", "unidade": "unidade", "g": 50, "aproximado": true, "obs": "ovo grande, sem casca; exemplo da doc (§5.3)"}
+  ]
+}
