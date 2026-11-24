@@ -509,19 +509,14 @@ class ClienteSite:
             not isinstance(dados, dict)
             or dados.get("id") is None
             or not isinstance(dados.get("slug"), str)
-            or dados.get("status") not in {"draft", "processing", "published"}
+            or dados.get("status") != validado.status
         ):
             raise ErroSite(
                 "resposta de criação fora do contrato v1",
                 http_status=resp.status_code,
                 request_id=todos_ids[-1],
             )
-        if validado.status == "published" and dados.get("status") != "published":
-            raise ErroSite(
-                "API não confirmou status published",
-                http_status=resp.status_code,
-                request_id=todos_ids[-1],
-            )
+
         replay = resp.headers.get("idempotent-replay", "").lower() == "true"
         return RespostaCriacao(
             "repetido" if replay else "criado", resp.status_code, dados.get("id"), dados.get("slug"),
