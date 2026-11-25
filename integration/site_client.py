@@ -6,13 +6,15 @@ Contrato da API existente na branch de integração do site (AdminFreitas/chocol
   validado por ``recipeInputSchema`` (``shared/recipes.ts``). Exige ``category`` e
   ``coverImageUrl`` (imagem já hospedada) e aceita ``status`` ``draft`` ou
   ``published``. O site não aplica escopos por token nem usa ``Idempotency-Key``.
-* ``POST /api/articles`` (dicas): mesmo Bearer; corpo estrito (``articleInputSchema``),
-  aceita ``topicSlug``/``categorySlug``. Respostas: 400 validação, 401/403 token,
-  409 slug duplicado, 422 categoria/tópico inexistente, 503 token não configurado.
-* O site não usa o objeto ``cover`` do contrato v1 planejado em ``docs/06-INTEGRACAO.md``.
+* ``POST /api/articles`` exige o contrato v1 e não é atendido por este cliente legado.
+  O fluxo antigo de dicas é bloqueado aqui até ser migrado para o cliente V1, que valida
+  fontes, metadados, escopo e a chave idempotente SHA-256.
+* Este módulo envia somente receitas pela rota de compatibilidade. Ele não declara
+  suporte a idempotência; o cliente ``agente_receitas.integration.cliente_site`` é o
+  responsável pelo contrato v1 e por retries seguros.
 
-O payload local (``integration/content.py``) segue o contrato v1 e é salvo assim em
-``output/``; aqui ele é convertido para o formato que o site aceita antes do envio.
+O payload local é convertido para o schema legado somente para compatibilidade de
+receitas. Não use este módulo para publicar dicas ou artigos.
 """
 
 from __future__ import annotations
@@ -157,7 +159,7 @@ def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
     endpoint = resolve_endpoint(tipo)
     status = payload.get("status", "draft")
     token = select_token(status)
-    body = to_site_recipe_payload(payload) if tipo == "receita" else payload
+    body = to_site_recipe_payload(payload)
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
