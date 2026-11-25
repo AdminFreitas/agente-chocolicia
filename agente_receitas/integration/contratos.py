@@ -219,7 +219,7 @@ class FonteArtigoV1(_Estrito):
 
 
 class ArtigoV1(_Estrito):
-    type: Literal["technique", "tip", "feature"]
+    type: Literal["article", "tip", "technique"]
     title: str = Field(min_length=5, max_length=180)
     slug: Optional[str] = Field(default=None, min_length=3, max_length=180, pattern=SLUG_RE)
     excerpt: str = Field(min_length=20, max_length=160)
