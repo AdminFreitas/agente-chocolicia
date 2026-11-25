@@ -66,7 +66,7 @@ class DicaFlowTests(unittest.TestCase):
         payload = result["payload"]
         self.assertEqual(payload["type"], "tip")
         self.assertEqual(payload["tipTopic"], "preparo")
-        self.assertEqual(payload["status"], "published")
+        self.assertEqual(payload["status"], "draft")
         self.assertEqual(payload["slug"], "como-acertar-o-ponto-do-brigadeiro")
         self.assertEqual(payload["aiModel"], "gemini:gemini-3.8-flash")
         self.assertGreaterEqual(len(payload["bodyMd"]), 600)
@@ -76,7 +76,7 @@ class DicaFlowTests(unittest.TestCase):
         with patch.object(gerar_dica, "ClienteSite") as cliente_cls:
             cliente = cliente_cls.return_value
             cliente.criar_artigo.return_value = resposta_site
-            result = gerar_dica.gerar_dica("preparo", target="preview")
+            result = gerar_dica.gerar_dica("preparo", target="preview", publish=True)
 
         cliente_cls.assert_called_once()
         args, kwargs = cliente_cls.call_args
@@ -93,7 +93,7 @@ class DicaFlowTests(unittest.TestCase):
             gerar_dica, "ClienteSite"
         ) as cliente:
             with self.assertRaisesRegex(gerar_dica.DicaInvalida, "token de publicação"):
-                gerar_dica.gerar_dica("preparo", target="preview")
+                gerar_dica.gerar_dica("preparo", target="preview", publish=True)
         cliente.assert_not_called()
 
     def test_topico_desconhecido_e_rejeitado(self):
