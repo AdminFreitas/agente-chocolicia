@@ -36,6 +36,7 @@ def test_fallback_transitorio_informa_provedor_que_respondeu(monkeypatch):
         {"provedor": "groq", "modelo": "groq-fallback"},
     ]
     monkeypatch.setattr(llm, "_modelos_aprovados", lambda tarefa: aprovados)
+    monkeypatch.setattr(llm, "_ordenar_modelos_por_fallback", lambda modelos: modelos)
     monkeypatch.setattr(llm, "_chave_provedor", lambda provedor: "chave-teste")
     monkeypatch.setattr(
         llm,
@@ -51,31 +52,40 @@ def test_fallback_transitorio_informa_provedor_que_respondeu(monkeypatch):
     assert resultado["modelo"] == "groq-fallback"
 
 
-def test_erro_de_autenticacao_interrompe_fallback(monkeypatch):
+def test_erro_de_autenticacao_tenta_proximo_provedor(monkeypatch):
     aprovados = [
         {"provedor": "gemini", "modelo": "gemini-primary"},
         {"provedor": "groq", "modelo": "groq-fallback"},
     ]
     monkeypatch.setattr(llm, "_modelos_aprovados", lambda tarefa: aprovados)
+    monkeypatch.setattr(llm, "_ordenar_modelos_por_fallback", lambda modelos: modelos)
     monkeypatch.setattr(llm, "_chave_provedor", lambda provedor: "chave-teste")
-    chamada = []
-    def falha_auth(item, prompt):
-        chamada.append(item["provedor"])
-        raise ProvedorHttpError(401)
-    monkeypatch.setattr(llm, "_chamar_provedor", falha_auth)
 
-    with pytest.raises(llm.ModeloNaoAprovado, match="fallback interrompido"):
-        llm.gerar_texto_com_metadados("criacao", "prompt")
-    assert chamada == ["gemini"]
+    def chamar(item, prompt):
+        if item["provedor"] == "gemini":
+            raise ProvedorHttpError(401)
+        return "resposta do Groq"
+
+    monkeypatch.setattr(llm, "_chamar_provedor", chamar)
+    resultado = llm.gerar_texto_com_metadados("criacao", "prompt")
+
+    assert resultado["texto"] == "resposta do Groq"
+    assert resultado["provedor"] == "groq"
 
 
-def test_chave_ausente_do_provedor_primario_nao_faz_fallback(monkeypatch):
+def test_chave_ausente_do_primario_usa_proximo_provedor(monkeypatch):
     aprovados = [
         {"provedor": "gemini", "modelo": "gemini-primary"},
         {"provedor": "groq", "modelo": "groq-fallback"},
     ]
     monkeypatch.setattr(llm, "_modelos_aprovados", lambda tarefa: aprovados)
-    monkeypatch.setattr(llm, "_chave_provedor", lambda provedor: "")
+    monkeypatch.setattr(llm, "_ordenar_modelos_por_fallback", lambda modelos: modelos)
+    monkeypatch.setattr(
+        llm, "_chave_provedor", lambda provedor: "" if provedor == "gemini" else "groq-key"
+    )
+    monkeypatch.setattr(llm, "_chamar_provedor", lambda item, prompt: "resposta do Groq")
 
-    with pytest.raises(llm.ModeloNaoAprovado, match="Chave ausente"):
-        llm.gerar_texto_com_metadados("criacao", "prompt")
+    resultado = llm.gerar_texto_com_metadados("criacao", "prompt")
+
+    assert resultado["texto"] == "resposta do Groq"
+    assert resultado["provedor"] == "groq"
