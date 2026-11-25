@@ -18,7 +18,7 @@ O agente produz:
 - técnicas de preparo;
 - matérias e conteúdos educativos relacionados à culinária e confeitaria.
 
-Não produz notícias, artigos de tecnologia, conteúdo DigitalTech, feeds RSS de tecnologia ou pautas de programação, cibersegurança, cloud e assuntos semelhantes.
+Não produz notícias, artigos de tecnologia, feeds RSS de tecnologia ou pautas de programação, cibersegurança, cloud e assuntos semelhantes.
 
 ## Ingredientes, alergias e saúde
 
