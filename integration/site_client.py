@@ -76,9 +76,17 @@ def resolve_endpoint(tipo: str) -> str:
 def select_token(status: str) -> str:
     """Seleciona o Bearer do site; nunca usa CRON_SECRET."""
     if status == "published":
-        token = os.getenv("SITE_TOKEN_PUBLISH") or os.getenv("CHOCOLICIA_TOKEN_PUBLISH")
+        token = (
+            os.getenv("SITE_TOKEN_PUBLISH")
+            or os.getenv("CHOCOLICIA_TOKEN_PUBLISH")
+            or os.getenv("RECIPES_AGENT_TOKEN")
+        )
     else:
-        token = os.getenv("SITE_TOKEN_DRAFT") or os.getenv("CHOCOLICIA_TOKEN_DRAFT")
+        token = (
+            os.getenv("SITE_TOKEN_DRAFT")
+            or os.getenv("CHOCOLICIA_TOKEN_DRAFT")
+            or os.getenv("RECIPES_AGENT_TOKEN")
+        )
     if not token:
         raise SiteAPIError(
             "Token Bearer ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de "
@@ -140,13 +148,16 @@ def _http_message(status: int, body: str) -> str:
 
 
 def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
-    """Envia uma vez. O site não garante Idempotency-Key; não repete POST ambíguo."""
+    """Envia uma vez pelo contrato legado de receitas, sem retry ou idempotência presumida."""
+    if tipo != "receita":
+        raise SiteAPIError(
+            "A integração legada só envia receitas. Dicas/artigos precisam usar o cliente "
+            "do contrato v1, com fontes, metadados e Idempotency-Key SHA-256."
+        )
     endpoint = resolve_endpoint(tipo)
     status = payload.get("status", "draft")
     token = select_token(status)
     body = to_site_recipe_payload(payload) if tipo == "receita" else payload
-    run_id = payload.get("generationMeta", {}).get("run_id", "")
-    idempotency_key = f"chocolicia-{tipo}-{topic_slug}-{run_id}"[:200]
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
