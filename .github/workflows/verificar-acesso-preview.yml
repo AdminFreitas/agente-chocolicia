@@ -1,0 +1,40 @@
+name: Verificar acesso OIDC ao Preview (somente leitura)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Emitir identidade OIDC do GitHub Actions
+        id: oidc
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput('token', token);
+
+      - name: Consultar tópicos do Preview (GET)
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          status="$(curl --silent --show-error \
+            --output "$response" \
+            --write-out "%{http_code}" \
+            --header "x-vercel-trusted-oidc-idp-token: ${VERCEL_TRUSTED_OIDC_TOKEN}" \
+            "https://chocolicia-git-feat-agent-co-7c95ec-chocoliciaartedosdoces-9565.vercel.app/api/articles/topics")"
+          echo "HTTP status: $status"
+          cat "$response"
+          test "$status" = "200"
+          jq -e '.items | type == "array"' "$response" >/dev/null
+          echo "Consulta GET concluída. Nenhum conteúdo foi gerado ou publicado."
