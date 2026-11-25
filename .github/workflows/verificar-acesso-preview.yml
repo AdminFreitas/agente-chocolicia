@@ -1,6 +1,11 @@
 name: Verificar acesso OIDC ao Preview (somente leitura)
 
 on:
+  push:
+    branches:
+      - fix/gemini-client-lifecycle
+    paths:
+      - .github/workflows/verificar-acesso-preview.yml
   workflow_dispatch:
 
 permissions:
