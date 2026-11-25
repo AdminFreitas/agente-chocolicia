@@ -39,6 +39,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 # Mesmo grupo das receitas: nunca há duas execuções do agente ao mesmo tempo.
 concurrency:
@@ -96,10 +97,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Emitir identidade OIDC para Vercel
+        id: vercel-oidc
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput('token', token);
+
       - name: Gerar dica
         shell: bash
         run: |
           set -euo pipefail
+          export VERCEL_TRUSTED_OIDC_TOKEN="${{ steps.vercel-oidc.outputs.token }}"
 
           if [ "${TARGET}" = "preview" ]; then
             export SITE_BASE_URL="${SITE_BASE_URL_PREVIEW}"
