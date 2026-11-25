@@ -1,28 +1,21 @@
-# Documentação do Agente Chocolícia
+# Documentação do agente Chocolícia
 
-Esta documentação descreve exclusivamente o agente Python que gera, valida e publica receitas e conteúdos culinários no site Chocolícia.
+Este diretório contém a documentação operacional e as decisões canônicas do agente de conteúdo culinário.
 
-**Fonte de verdade:** [Decisões canônicas do projeto](DECISOES-CANONICAS-CHOCOLICIA.md). Documentos antigos só permanecem válidos quando não contradizem esse documento.
+## Documento principal
 
-## Regras operacionais
+- [Decisões canônicas Chocolícia](DECISOES-CANONICAS-CHOCOLICIA.md): escopo, responsabilidades, regras editoriais, validação e publicação. Em caso de conflito, este documento prevalece.
 
-- O agente gera receitas, dicas, técnicas e matérias culinárias.
-- O agente valida automaticamente a qualidade culinária e a integridade do conteúdo.
-- O agente publica automaticamente pela API oficial do site; revisão humana não é obrigatória.
-- O site recebe, persiste e apresenta o conteúdo. Não realiza uma segunda geração.
-- O agente não acessa diretamente o banco Neon do site.
-- Ollama está temporariamente fora do escopo e não é requisito.
-- Não existem bloqueios por alergias individuais, identificação de alérgenos, avisos médicos genéricos ou exigência de recomendar marcas/substituições.
-- Ingredientes como leite, camarão, ovos, margarina e outros devem ser listados normalmente quando fizerem parte da receita. O leitor decide quais ingredientes pode utilizar.
-- Não inserir avisos fixos sobre alergias, rótulos ou condições médicas.
-- Não fazer promessas de cura, tratamento ou benefício médico. Isso não restringe receitas culinárias comuns.
+## Documentos complementares
+
+- [Integração agente–site](06-INTEGRACAO.md): clientes, contratos e comunicação pela API.
+- [Pesquisa de receitas](PESQUISA-RECEITAS.md): processo de pesquisa e coleta de referências.
+- [Taxonomia inicial](taxonomy.seed.json): estrutura inicial de categorias e subcategorias.
 
 ## Escopo
 
-Inclui pesquisa culinária, geração de receitas e dicas, técnicas de preparo, conteúdos educativos, validação culinária, imagens, SEO, metadados e integração com a API Chocolícia.
+O agente trabalha com receitas, dicas, técnicas e matérias culinárias. Não utiliza fluxos de notícias, RSS de tecnologia, publicação em repositórios de terceiros ou tabelas antigas de artigos. Não acessa diretamente o banco Neon do site.
 
-Exclui notícias, artigos de tecnologia, feeds RSS de tecnologia, classificadores de notícias, categorias e prompts DigitalTech, banco/tabelas antigos de artigos e publicação no repositório GitHub DigitalTech.
+Ollama está fora do escopo operacional atual. Os provedores de IA ativos são configurados por variáveis de ambiente.
 
-## Documentos
-
-Os documentos numerados existentes estão em processo de alinhamento. Quando houver divergência, prevalece `DECISOES-CANONICAS-CHOCOLICIA.md`. Não executar instruções antigas de fases, aprovações humanas, bloqueios por alergias, publicação em GitHub ou geração pelo backend do site.
+Documentos históricos ou instruções que contrariem as decisões canônicas não devem orientar a implementação.
