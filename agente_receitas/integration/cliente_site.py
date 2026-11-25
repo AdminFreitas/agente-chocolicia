@@ -15,6 +15,7 @@ import hashlib
 import base64
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -262,8 +263,12 @@ class ClienteSite:
         for tentativa in range(1, self._max + 1):
             rid = self._gerar_id()
             ids.append(rid)
-            cab = {"Authorization": f"Bearer {token}", "Accept": "application/json", "X-Request-Id": rid,
-                   }
+            cab = {"Authorization": f"Bearer {token}", "Accept": "application/json", "X-Request-Id": rid}
+            # Token OIDC efêmero emitido pelo GitHub Actions para Trusted Sources da Vercel.
+            # Nunca registrar nem persistir este cabeçalho.
+            vercel_oidc = os.getenv("VERCEL_TRUSTED_OIDC_TOKEN", "").strip()
+            if vercel_oidc:
+                cab["x-vercel-trusted-oidc-idp-token"] = vercel_oidc
             if self.contract != "legacy":
                 cab["X-Contract-Version"] = self.contract_version
             if corpo is not None:
