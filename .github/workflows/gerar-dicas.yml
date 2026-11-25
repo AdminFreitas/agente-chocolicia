@@ -9,8 +9,6 @@ name: Gerar dica (Chocolícia)
 # A publicação automática usa SITE_TOKEN_PUBLISH do ambiente selecionado.
 
 on:
-  schedule:
-    - cron: "0 12 * * 2,5"
   workflow_dispatch:
     inputs:
       assunto:
@@ -34,7 +32,6 @@ on:
         type: choice
         options:
           - preview
-          - producao
         default: preview
 
 permissions:
@@ -48,16 +45,16 @@ concurrency:
 
 jobs:
   dica:
-    if: ${{ vars.AGENT_ENABLED == 'true' && vars.AGENT_DICAS_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && vars.AGENT_ENABLED == 'true' && vars.AGENT_DICAS_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       # --- Execução ---
-      TARGET: ${{ inputs.target || 'preview' }}
-      DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+      TARGET: preview
+      DRY_RUN: ${{ inputs.dry_run != false && 'true' || 'false' }}
       ASSUNTO: ${{ inputs.assunto || 'automatico' }}
       CONTRACT_VERSION: "1"
-      AGENT_PHASE: ${{ vars.AGENT_PHASE || '1' }}
+      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
 
       # --- Site (o agente só fala com o site por API) ---
       SITE_BASE_URL_PROD: ${{ vars.SITE_BASE_URL }}
