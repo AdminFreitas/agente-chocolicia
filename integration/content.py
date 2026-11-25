@@ -104,7 +104,7 @@ def build_payload(
         "generationMeta": {
             "run_id": run_id,
             "topic_slug": slugify(topic) or slug,
-            "prompt_version": "ollama-local-1.0.0",
+            "prompt_version": "chocolicia-cloud-1.0.0",
             "phase": phase,
             "sources": [],
             "validators_version": "basic-structure-1.0.0",
