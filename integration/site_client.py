@@ -2,10 +2,10 @@
 
 Contrato da API existente na branch de integração do site (AdminFreitas/chocolicia):
 
-* ``POST /api/recipes``: Bearer igual ao ``RECIPES_AGENT_TOKEN`` do site; corpo
-  validado por ``recipeInputSchema`` (``shared/recipes.ts``). Exige ``category`` e
-  ``coverImageUrl`` (imagem já hospedada) e aceita ``status`` ``draft`` ou
-  ``published``. O site não aplica escopos por token nem usa ``Idempotency-Key``.
+* ``POST /api/recipes``: compatibilidade com Bearer ``RECIPES_AGENT_TOKEN`` e
+  schema legado ``recipeInputSchema``. Exige ``category`` e ``coverImageUrl``
+  já hospedada. A branch nova do site aplica bloqueio server-side para publicação e
+  reconhece uma ``Idempotency-Key`` SHA-256 opcional nesta rota de compatibilidade.
 * ``POST /api/articles`` exige o contrato v1 e não é atendido por este cliente legado.
   O fluxo antigo de dicas é bloqueado aqui até ser migrado para o cliente V1, que valida
   fontes, metadados, escopo e a chave idempotente SHA-256.
