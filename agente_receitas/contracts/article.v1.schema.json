@@ -362,7 +362,7 @@
       "enum": [
         "technique",
         "tip",
-        "feature"
+        "article"
       ],
       "title": "Type",
       "type": "string"
