@@ -150,8 +150,8 @@ def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
-        "Idempotency-Key": idempotency_key,
-        "X-Contract-Version": os.getenv("CONTRACT_VERSION", "1"),
+        # Este cliente converte payloads para o contrato legado. Não envie
+        # X-Contract-Version: 1, pois isso seleciona o endpoint v1 estrito.
         "X-Request-Id": str(uuid.uuid4()),
     }
     try:
