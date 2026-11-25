@@ -23,6 +23,9 @@ SITE_TOKEN_DRAFT = env("SITE_TOKEN_DRAFT")
 SITE_TOKEN_PUBLISH = env("SITE_TOKEN_PUBLISH")
 SITE_TOKEN_DRAFT_PREVIEW = env("SITE_TOKEN_DRAFT_PREVIEW")
 PESQUISA_PROVEDOR = env("PESQUISA_PROVEDOR", "mock")
+# Preferência global de fallback. Só são usados provedores com adaptador,
+# modelo aprovado na configuração da tarefa e credencial disponível.
+FALLBACK_ORDER = env("FALLBACK_ORDER", "groq,gemini,openai,anthropic,openrouter,deepseek,grok,huggingface,mistral,cohere,together,kimi,ollama")
 GEMINI_API_KEY = env("GEMINI_API_KEY")
 GROQ_API_KEY = env("GROQ_API_KEY")
 OPENROUTER_API_KEY = env("OPENROUTER_API_KEY")
