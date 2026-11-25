@@ -45,6 +45,7 @@ def montar_prompt(topico: str, angulo: str) -> str:
     return f"""Você é redator culinário da Chocolícia, em português do Brasil.
 Escreva uma dica prática, original e útil sobre {rotulo}, com foco em {angulo}.
 Use Markdown, subtítulos e linguagem acessível. Não invente dados, preços ou estatísticas.
+O resumo deve ter entre 20 e 160 caracteres.
 Não transforme o conteúdo em orientação médica ou nutricional.
 Responda exatamente:
 TITULO: ...
@@ -86,6 +87,7 @@ def montar_payload(dados: dict, topico: str, meta: dict, status: str, run_id: st
         "structured": {"direct_answer": resumo},
         "tags": ["dicas", TOPICOS[topico][0].lower().replace(" ", "-"), "chocolate"],
         "relatedTopics": [],
+        "sources": [],
         "cover": _cover(),
         "coverImageAlt": _recortar(titulo, 240) if len(titulo) >= 8 else f"Dica: {titulo}",
         "status": status,
