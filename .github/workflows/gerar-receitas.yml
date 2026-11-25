@@ -27,6 +27,11 @@ on:
         type: boolean
         required: true
         default: true
+      publish:
+        description: "Publica em vez de criar rascunho (somente quando autorizado)"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -45,7 +50,8 @@ jobs:
       TARGET: preview
       TEMA: ${{ inputs.tema || vars.RECIPE_TOPIC || 'bolo de chocolate' }}
       SUBCATEGORIA: ${{ inputs.subcategoria || vars.RECIPE_SUBCATEGORY || 'bolos-de-chocolate' }}
-      DRY_RUN: ${{ inputs.dry_run != false && 'true' || 'false' }}
+      DRY_RUN: ${{ inputs.dry_run == false && 'false' || 'true' }}
+      PUBLISH: ${{ inputs.publish && 'true' || 'false' }}
       AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
       AGENT_ENABLED: ${{ vars.AGENT_ENABLED || 'false' }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -106,6 +112,9 @@ jobs:
 
           ARGS=(--tipo receita --tema "${TEMA}" --subcategoria "${SUBCATEGORIA}")
           if [ "${DRY_RUN}" != "true" ]; then
-            ARGS+=(--send --publish)
+            ARGS+=(--send)
+            if [ "${PUBLISH}" = "true" ]; then
+              ARGS+=(--publish)
+            fi
           fi
           python rodar_conteudo.py "${ARGS[@]}"
