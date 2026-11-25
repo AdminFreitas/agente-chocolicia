@@ -6,27 +6,27 @@ Agente Python responsável por pesquisar, gerar, validar e publicar automaticame
 
 ## Responsabilidades
 
-- O agente é o único responsável por gerar receitas, dicas, técnicas e matérias culinárias.
-- O agente executa a validação automática de qualidade culinária, estrutura, SEO e contrato.
-- A publicação é automática pelo cliente/API oficial da Chocolícia; não existe revisão humana obrigatória.
-- O site recebe, armazena e apresenta o conteúdo. Não gera receitas ou dicas em paralelo.
+- O agente é responsável por gerar receitas, dicas, técnicas e matérias culinárias.
+- O agente executa validações de qualidade culinária, estrutura, SEO e contrato.
+- A publicação ocorre pela API oficial da Chocolícia.
+- O site recebe, armazena e apresenta o conteúdo; não gera conteúdo em paralelo.
 - O agente não acessa diretamente o banco Neon do site.
 
 ## Conteúdo e ingredientes
 
-A receita deve apresentar ingredientes, quantidades e modo de preparo com clareza. Não há detecção de alergias individuais, catálogo de alérgenos, bloqueio por presença de ingredientes, aviso médico genérico ou recomendação de marcas/substituições por motivos médicos. A decisão de utilizar e consumir os ingredientes é do leitor.
+Receitas apresentam ingredientes, quantidades e modo de preparo com clareza. Não há detecção de alergias individuais, catálogo obrigatório de alérgenos, bloqueio por ingredientes, avisos médicos genéricos ou recomendações de marcas/substituições por motivos médicos. A decisão de utilizar e consumir os ingredientes é do leitor.
 
-A validação deve tratar de qualidade culinária e integridade: coerência entre ingredientes e etapas, quantidades, unidades, tempos, temperaturas, rendimento, estrutura, originalidade e contrato da API.
+A validação trata de qualidade culinária e integridade: coerência entre ingredientes e etapas, quantidades, unidades, tempos, temperaturas, rendimento, estrutura, originalidade e contrato da API.
 
 ## Execução
 
-O ponto de entrada e os comandos operacionais devem ser mantidos na documentação do próprio agente e alinhados ao serviço Python compartilhado de IA. Ollama está fora do escopo operacional atual e não é pré-requisito.
+Os pontos de entrada operacionais são `rodar_conteudo.py` para receitas e `python -m pipeline.gerar_dica` para dicas. Os workflows correspondentes estão em `.github/workflows/`.
 
-Não utilizar fluxos antigos de artigos/notícias, feeds RSS de tecnologia, publicação no GitHub DigitalTech ou acesso a tabelas antigas de artigos.
+O serviço Python compartilhado de IA utiliza provedores em nuvem configurados por variáveis de ambiente. Ollama não é requisito operacional.
 
 ## Integração
 
-O agente publica pelo cliente oficial da API Chocolícia. Credenciais e URLs são configuradas por variáveis de ambiente; nunca registrar valores secretos no repositório.
+URLs e credenciais são configuradas por variáveis de ambiente; nunca registrar valores secretos no repositório. O agente comunica-se com o site exclusivamente pela API. A disponibilidade dos endpoints e a compatibilidade integral dos contratos ainda dependem da validação autorizada.
 
 ## Desenvolvimento
 
