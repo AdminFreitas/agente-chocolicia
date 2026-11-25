@@ -99,16 +99,24 @@ def _modelo_resolvido(item: dict) -> str:
     return padrao.get(item["provedor"], "")
 
 
-def _chamar_gemini(prompt: str, modelo: str) -> str:
+def _novo_cliente_gemini():
     from google import genai
 
-    resposta = genai.Client(api_key=GEMINI_API_KEY).models.generate_content(
-        model=modelo,
-        contents=prompt,
-    )
-    if not getattr(resposta, "text", None):
-        raise RuntimeError("Resposta vazia do Gemini")
-    return resposta.text
+    return genai.Client(api_key=GEMINI_API_KEY)
+
+
+def _chamar_gemini(prompt: str, modelo: str) -> str:
+    # Mantém uma referência forte ao cliente durante toda a chamada.
+    # O context manager fecha o transporte ao concluir, inclusive em exceções.
+    # Um cliente novo por requisição evita compartilhar clientes entre execuções.
+    with _novo_cliente_gemini() as cliente:
+        resposta = cliente.models.generate_content(
+            model=modelo,
+            contents=prompt,
+        )
+        if not getattr(resposta, "text", None):
+            raise RuntimeError("Resposta vazia do Gemini")
+        return resposta.text
 
 
 def _chamar_openai_compativel(prompt: str, modelo: str, provedor: str) -> str:
