@@ -27,7 +27,10 @@ SITE_TOKEN_DRAFT_PREVIEW = env("SITE_TOKEN_DRAFT_PREVIEW")
 PESQUISA_PROVEDOR = env("PESQUISA_PROVEDOR", "mock")
 # Preferência global de fallback. Só são usados provedores com adaptador,
 # modelo aprovado na configuração da tarefa e credencial disponível.
-FALLBACK_ORDER = env("FALLBACK_ORDER", "groq,gemini,openai,anthropic,openrouter,deepseek,grok,huggingface,mistral,cohere,together,kimi,ollama")
+FALLBACK_ORDER = env("FALLBACK_ORDER", "ollama,groq,gemini,openrouter,openai,anthropic,deepseek,grok,huggingface,mistral,cohere,together,kimi")
+OLLAMA_BASE_URL = env("OLLAMA_BASE_URL", env("OLLAMA_URL", "http://127.0.0.1:11434"))
+OLLAMA_MODEL = env("OLLAMA_MODEL", "qwen2.5:3b")
+OLLAMA_TIMEOUT_SECONDS = env("OLLAMA_TIMEOUT_SECONDS", "180")
 GEMINI_API_KEY = env("GEMINI_API_KEY")
 GROQ_API_KEY = env("GROQ_API_KEY")
 OPENROUTER_API_KEY = env("OPENROUTER_API_KEY")
