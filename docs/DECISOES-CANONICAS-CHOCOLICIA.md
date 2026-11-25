@@ -58,3 +58,8 @@ O Ollama está temporariamente fora do escopo operacional. Não é requisito par
 ## Limites operacionais desta etapa
 
 As alterações devem permanecer na branch `fix/gemini-client-lifecycle`. Não tocar em `main`, não fazer merge, não executar testes, workflows, geração ou publicação real, migrações ou deploy. Essas ações dependem de autorização posterior do responsável pelo projeto.
+
+
+## Execução e publicação
+
+O agente Python é responsável por gerar, validar e publicar automaticamente receitas e dicas pela API Chocolícia. Os workflows apenas acionam o agente; o backend do site não gera conteúdo. Não há revisão humana obrigatória. Ollama está fora do escopo operacional atual; o serviço compartilhado utiliza os provedores em nuvem configurados em `FALLBACK_ORDER`.
