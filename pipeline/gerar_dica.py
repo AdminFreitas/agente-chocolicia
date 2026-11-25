@@ -99,7 +99,7 @@ def montar_payload(dados: dict, topico: str, meta: dict, status: str, run_id: st
             "run_id": run_id,
             "topic_slug": topico,
             "prompt_version": "chocolicia-tips-1.0.0",
-            "phase": int(os.getenv("AGENT_PHASE", "1")),
+            "phase": int(os.getenv("AGENT_PHASE", "0")),
             "sources": [],
             "validators_version": "culinary-content-1.0.0",
         },
