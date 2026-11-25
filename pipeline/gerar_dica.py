@@ -75,8 +75,11 @@ def _cover() -> dict:
 
 def montar_payload(dados: dict, topico: str, meta: dict, status: str, run_id: str) -> dict:
     titulo = dados["titulo"].strip()
-    resumo = _recortar(dados.get("excerpt") or titulo, 160)
     corpo = dados["corpo"].strip()
+    resumo_bruto = (dados.get("excerpt") or "").strip()
+    if len(resumo_bruto) < 20:
+        resumo_bruto = f"{titulo}. {corpo}"
+    resumo = _recortar(resumo_bruto, 160)
     return {
         "type": "tip",
         "title": titulo,
