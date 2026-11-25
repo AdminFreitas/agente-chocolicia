@@ -27,6 +27,10 @@ on:
         description: "Gera e valida, mas não envia ao site"
         type: boolean
         default: true
+      publish:
+        description: "Publica em vez de criar rascunho (somente quando autorizado)"
+        type: boolean
+        default: false
       target:
         description: "Ambiente de destino"
         type: choice
@@ -51,7 +55,8 @@ jobs:
     env:
       # --- Execução ---
       TARGET: preview
-      DRY_RUN: ${{ inputs.dry_run != false && 'true' || 'false' }}
+      DRY_RUN: ${{ inputs.dry_run == false && 'false' || 'true' }}
+      PUBLISH: ${{ inputs.publish && 'true' || 'false' }}
       ASSUNTO: ${{ inputs.assunto || 'automatico' }}
       CONTRACT_VERSION: "1"
       AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
@@ -126,6 +131,9 @@ jobs:
             exit 1
           fi
           ARGS=(--assunto "${ASSUNTO}" --target "${TARGET}")
+          if [ "${PUBLISH}" = "true" ] && [ "${DRY_RUN}" != "true" ]; then
+            ARGS+=(--publish)
+          fi
           if [ "${ASSUNTO}" != "automatico" ]; then
             ARGS+=(--assunto "${ASSUNTO}")
           fi
