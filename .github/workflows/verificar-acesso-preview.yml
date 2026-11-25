@@ -61,3 +61,28 @@ jobs:
           test "$status" = "200"
           jq -e '.items | type == "array"' "$response" >/dev/null
           echo "Consulta GET de receitas concluída. Nenhum conteúdo foi criado ou alterado."
+
+      - name: Confirmar que a API exige Bearer válido (POST rejeitado sem escrita)
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for endpoint in articles recipes; do
+            response="$(mktemp)"
+            status="$(curl --silent --show-error \
+              --output "$response" \
+              --write-out "%{http_code}" \
+              --request POST \
+              --header "x-vercel-trusted-oidc-idp-token: ${VERCEL_TRUSTED_OIDC_TOKEN}" \
+              --header "X-Contract-Version: 1" \
+              --header "Authorization: Bearer diagnostic-invalid-token-never-valid" \
+              --header "Content-Type: application/json" \
+              --data '{}' \
+              "https://chocolicia-git-feat-agent-co-7c95ec-chocoliciaartedosdoces-9565.vercel.app/api/${endpoint}")"
+            echo "${endpoint}: HTTP ${status}"
+            cat "$response"
+            test "$status" = "401"
+            jq -e '.error.code == "unauthorized"' "$response" >/dev/null
+          done
+          echo "As duas rotas rejeitaram Bearer inválido antes de qualquer escrita."
