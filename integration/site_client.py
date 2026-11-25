@@ -167,6 +167,11 @@ def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
         # X-Contract-Version: 1, pois isso seleciona o endpoint v1 estrito.
         "X-Request-Id": str(uuid.uuid4()),
     }
+    # Token OIDC efêmero do GitHub Actions para Trusted Sources da Vercel.
+    # Não registrar este cabeçalho nem incluí-lo em mensagens de erro.
+    vercel_oidc = os.getenv("VERCEL_TRUSTED_OIDC_TOKEN", "").strip()
+    if vercel_oidc:
+        headers["x-vercel-trusted-oidc-idp-token"] = vercel_oidc
     try:
         response = httpx.post(endpoint, json=body, headers=headers, timeout=30)
     except httpx.TimeoutException as exc:
