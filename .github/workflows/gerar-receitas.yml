@@ -4,8 +4,6 @@ name: Gerar receita (Agente Chocolícia)
 # Este workflow não solicita geração ao backend do site.
 
 on:
-  schedule:
-    - cron: "0 11 * * *"
   workflow_dispatch:
     inputs:
       tema:
@@ -23,7 +21,6 @@ on:
         type: choice
         options:
           - preview
-          - producao
         default: preview
       dry_run:
         description: "Gera e valida sem enviar ao site"
@@ -41,15 +38,16 @@ concurrency:
 
 jobs:
   receita:
-    if: ${{ vars.AGENT_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && vars.AGENT_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TARGET: ${{ inputs.target || vars.TARGET || 'preview' }}
+      TARGET: preview
       TEMA: ${{ inputs.tema || vars.RECIPE_TOPIC || 'bolo de chocolate' }}
       SUBCATEGORIA: ${{ inputs.subcategoria || vars.RECIPE_SUBCATEGORY || 'bolos-de-chocolate' }}
-      DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
-      AGENT_PHASE: ${{ vars.AGENT_PHASE || '1' }}
+      DRY_RUN: ${{ inputs.dry_run != false && 'true' || 'false' }}
+      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
+      AGENT_ENABLED: ${{ vars.AGENT_ENABLED || 'false' }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
