@@ -1,5 +1,8 @@
 # agente-chocolicia
 
+> **Documento canônico:** consulte primeiro [Decisões canônicas do projeto Chocolícia](docs/DECISOES-CANONICAS-CHOCOLICIA.md). Ele prevalece sobre instruções antigas conflitantes. O agente Python é responsável por gerar, validar e publicar automaticamente receitas e conteúdos culinários; o backend do site recebe e apresenta o conteúdo.
+
+
 Repositório do agente de conteúdo do site Chocolícia.
 
 ## Geração local com Ollama e envio para o site
