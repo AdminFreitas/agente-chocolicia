@@ -96,7 +96,7 @@ def build_payload(
         "title": title,
         "slug": slug,
         "excerpt": excerpt,
-        "tags": [str(tag).strip().lower() for tag in generated.get("tags", []) if str(tag).strip()][:12],
+        "tags": list(dict.fromkeys(slugify(str(tag))[:40] for tag in generated.get("tags", []) if slugify(str(tag))))[:12],
         "cover": cover_data,
         "coverImageAlt": _require_text(generated, "coverImageAlt", 8, 240),
         "status": "published" if publish else "draft",
