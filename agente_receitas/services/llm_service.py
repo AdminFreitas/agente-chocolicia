@@ -12,6 +12,7 @@ from agente_receitas.config.settings import (
     GEMINI_API_KEY,
     GROQ_API_KEY,
     OPENROUTER_API_KEY,
+    FALLBACK_ORDER,
 )
 
 
@@ -81,6 +82,22 @@ def _modelos_aprovados(tarefa: str) -> list[dict]:
     return modelos
 
 
+def _ordenar_modelos_por_fallback(modelos: list[dict]) -> list[dict]:
+    """Ordena somente modelos já aprovados para a tarefa, sem habilitar provedores novos."""
+    ordem = [item.strip().lower() for item in FALLBACK_ORDER.split(",") if item.strip()]
+    prioridade = {provedor: indice for indice, provedor in enumerate(ordem)}
+    return [
+        item
+        for _, item in sorted(
+            enumerate(modelos),
+            key=lambda par: (
+                prioridade.get(str(par[1].get("provedor", "")).strip().lower(), len(prioridade)),
+                par[0],
+            ),
+        )
+    ]
+
+
 def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list[dict]:
     modelos = _modelos_aprovados(tarefa)
     if not modelos:
@@ -105,7 +122,7 @@ def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list
         raise ModeloNaoAprovado(
             f"Nenhum modelo aprovado de família diferente para a tarefa '{tarefa}'"
         )
-    return elegiveis
+    return _ordenar_modelos_por_fallback(elegiveis)
 
 
 def validar_configuracao_modelos(tarefas: list[str]) -> None:
