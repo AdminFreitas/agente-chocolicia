@@ -13,6 +13,7 @@ from config.settings import (
     GEMINI_API_KEY,
     GROQ_API_KEY,
     OPENROUTER_API_KEY,
+    FALLBACK_ORDER,
 )
 
 
@@ -77,6 +78,22 @@ def _modelos_aprovados(tarefa: str) -> list[dict]:
     with _CONFIG_PATH.open("r", encoding="utf-8") as arquivo:
         config = json.load(arquivo)
     return config.get(tarefa, [])
+
+
+def _ordenar_modelos_por_fallback(modelos: list[dict]) -> list[dict]:
+    """Ordena somente modelos aprovados, respeitando a preferência global."""
+    ordem = [item.strip().lower() for item in FALLBACK_ORDER.split(",") if item.strip()]
+    prioridade = {provedor: indice for indice, provedor in enumerate(ordem)}
+    return [
+        item
+        for _, item in sorted(
+            enumerate(modelos),
+            key=lambda par: (
+                prioridade.get(str(par[1].get("provedor", "")).strip().lower(), len(prioridade)),
+                par[0],
+            ),
+        )
+    ]
 
 
 def _chave_provedor(provedor: str) -> str | None:
@@ -181,7 +198,7 @@ def _erro_transitorio(exc: Exception) -> bool:
 def _gerar_texto_com_metadados(
     tarefa: str, prompt: str, tentativas_por_provedor: int = 2
 ) -> dict:
-    modelos = _modelos_aprovados(tarefa)
+    modelos = _ordenar_modelos_por_fallback(_modelos_aprovados(tarefa))
     if not modelos:
         raise ModeloNaoAprovado(f"Nenhum modelo aprovado para a tarefa '{tarefa}'")
 
@@ -191,9 +208,6 @@ def _gerar_texto_com_metadados(
         provedor = str(item.get("provedor", "")).lower()
         chave = _chave_provedor(provedor)
         if not chave:
-            mensagem = f"Chave ausente para o provedor aprovado '{provedor}'."
-            if indice == 0:
-                raise ModeloNaoAprovado(mensagem)
             erros.append(f"{provedor}: chave ausente")
             continue
 
@@ -220,11 +234,13 @@ def _gerar_texto_com_metadados(
             except Exception as exc:
                 if _erro_configuracao(exc):
                     code = _codigo_http(exc)
-                    raise ModeloNaoAprovado(
-                        f"Erro de autenticação/configuração no provedor primário '{provedor}'"
-                        + (f" (HTTP {code})" if code else "")
-                        + "; fallback interrompido."
-                    ) from exc
+                    erros.append(
+                        f"{provedor}: erro de autenticação/configuração"
+                        + (f" HTTP {code}" if code else "")
+                    )
+                    # Credencial ou modelo inválido neste provedor não deve
+                    # impedir a tentativa do próximo provedor aprovado.
+                    break
                 if not _erro_transitorio(exc):
                     raise RuntimeError(
                         f"Erro não classificado como transitório no provedor '{provedor}' "
