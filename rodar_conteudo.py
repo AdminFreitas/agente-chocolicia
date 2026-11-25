@@ -62,7 +62,7 @@ def run(args: argparse.Namespace) -> dict:
             topic=args.tema,
             cover=cover,
             model=modelo,
-            phase=int(os.getenv("AGENT_PHASE", "1")),
+            phase=int(os.getenv("AGENT_PHASE", "0")),
             publish=args.publish,
             subcategoria=args.subcategoria,
             assunto=args.assunto,
