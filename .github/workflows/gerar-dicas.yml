@@ -5,8 +5,8 @@ name: Gerar dica (Chocolícia)
 #
 # Fica DESLIGADO até as variáveis do repositório AGENT_ENABLED e
 # AGENT_DICAS_ENABLED valerem "true".
-# Os tokens SITE_TOKEN_* devem ter o MESMO valor do RECIPES_AGENT_TOKEN configurado no
-# site (nunca CRON_SECRET). Endpoint: POST {SITE_BASE_URL}/api/articles.
+# O agente Python gera e publica a dica pela API v1 do site (/api/articles).
+# A publicação automática usa SITE_TOKEN_PUBLISH do ambiente selecionado.
 
 on:
   schedule:
@@ -56,13 +56,15 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
       ASSUNTO: ${{ inputs.assunto || 'automatico' }}
       CONTRACT_VERSION: "1"
-      FALLBACK_ORDER: ${{ vars.FALLBACK_ORDER }}
+      AGENT_PHASE: ${{ vars.AGENT_PHASE || '1' }}
 
       # --- Site (o agente só fala com o site por API) ---
       SITE_BASE_URL_PROD: ${{ vars.SITE_BASE_URL }}
       SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
       SITE_TOKEN_DRAFT_PROD: ${{ secrets.SITE_TOKEN_DRAFT }}
       SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
+      SITE_TOKEN_PUBLISH_PROD: ${{ secrets.SITE_TOKEN_PUBLISH }}
+      SITE_TOKEN_PUBLISH_PREVIEW: ${{ secrets.SITE_TOKEN_PUBLISH_PREVIEW }}
 
       # --- Provedores de IA (somente os da lista de modelos aprovados) ---
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
@@ -115,12 +117,7 @@ jobs:
             echo "::error::Token de rascunho ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de RECIPES_AGENT_TOKEN do site."
             exit 1
           fi
-          if [ -z "${GEMINI_API_KEY}" ]; then
-            echo "::error::GEMINI_API_KEY está ausente; Gemini é o provedor primário aprovado para criação."
-            exit 1
-          fi
-
-          ARGS=(--dica --target "${TARGET}")
+          ARGS=(--assunto "${ASSUNTO}" --target "${TARGET}")
           if [ "${ASSUNTO}" != "automatico" ]; then
             ARGS+=(--assunto "${ASSUNTO}")
           fi
@@ -128,7 +125,7 @@ jobs:
             ARGS+=(--dry-run)
           fi
 
-          python rodar_agente.py "${ARGS[@]}"
+          python -m pipeline.gerar_dica "${ARGS[@]}"
 
       - name: Resumo da execução
         if: always()
