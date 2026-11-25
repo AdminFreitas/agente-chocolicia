@@ -111,6 +111,8 @@ def validar_payload(payload: dict) -> None:
         raise DicaInvalida("Título muito curto.")
     if len(payload["bodyMd"]) < 600:
         raise DicaInvalida("A dica precisa ter pelo menos 600 caracteres.")
+    if len(payload["bodyMd"]) > 30000:
+        raise DicaInvalida("A dica excede o limite de 30000 caracteres aceito pelo site.")
     if payload["tipTopic"] not in TOPICOS:
         raise DicaInvalida("Tópico de dica inválido.")
     ArtigoV1.model_validate(payload)
