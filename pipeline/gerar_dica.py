@@ -1,7 +1,7 @@
-"""Fluxo de dicas: LLM em nuvem -> validação -> POST /api/articles do site.
+"""Geração e publicação automática de dicas culinárias pela API Chocolícia.
 
-Não usa banco do agente nem Ollama. O payload segue o schema estrito do site
-(``articleInputSchema``): campos extras são rejeitados com HTTP 400.
+O modelo de linguagem é selecionado pelo serviço compartilhado services.llm_service.
+O contrato de publicação é o ArtigoV1 do cliente oficial do agente.
 """
 
 from __future__ import annotations
@@ -9,27 +9,24 @@ from __future__ import annotations
 import json
 import os
 import random
-import re
 from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
-from integration import site_client
+from agente_receitas.integration.cliente_site import ClienteSite
+from agente_receitas.integration.contratos import ArtigoV1
 from services import llm_service
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 
-# slug do tópico (tip_topics.slug no site) -> (rótulo, ângulos editoriais)
 TOPICOS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "preparo": ("Preparo de doces", ("erros comuns", "passo a passo rápido", "temperatura e ponto", "como corrigir")),
-    "montagem-e-apresentacao": ("Montagem e apresentação", ("acabamento profissional", "embalagem", "fotografar doces")),
+    "preparo": ("Preparo de doces", ("erros comuns", "passo a passo", "temperatura e ponto", "como corrigir")),
+    "montagem-e-apresentacao": ("Montagem e apresentação", ("acabamento", "embalagem", "fotografia de doces")),
     "ornamentacao": ("Ornamentação", ("decoração com chocolate", "confeitos e coberturas", "técnicas de bico")),
-    "equipamentos-uso": ("Uso de equipamentos", ("cuidados e limpeza", "uso correto", "aproveitar melhor")),
-    "equipamentos-compra": ("Compra de equipamentos", ("o que priorizar", "iniciante x profissional", "custo-benefício")),
+    "equipamentos-uso": ("Uso de equipamentos", ("cuidados e limpeza", "uso correto", "aproveitamento")),
+    "equipamentos-compra": ("Compra de equipamentos", ("o que priorizar", "iniciante ou profissional", "custo-benefício")),
     "negocios": ("Negócios de doces", ("precificação", "atendimento e vendas", "organização da produção")),
 }
-
-TAMANHO_MINIMO_CORPO = 600
-
 
 class DicaInvalida(ValueError):
     pass
@@ -45,104 +42,84 @@ def escolher_topico(assunto: str | None, rng: random.Random | None = None) -> st
 
 def montar_prompt(topico: str, angulo: str) -> str:
     rotulo = TOPICOS[topico][0]
-    return f"""Você é editor do blog Chocolícia, sobre chocolate e confeitaria, em português do Brasil.
-Escreva uma DICA prática e original sobre: {rotulo} (ângulo: {angulo}).
-Use Markdown, de 400 a 700 palavras, com subtítulos (##), listas curtas e linguagem acessível.
-Não invente dados, preços ou estatísticas.
-Responda exatamente neste formato:
+    return f"""Você é redator culinário da Chocolícia, em português do Brasil.
+Escreva uma dica prática, original e útil sobre {rotulo}, com foco em {angulo}.
+Use Markdown, subtítulos e linguagem acessível. Não invente dados, preços ou estatísticas.
+Não transforme o conteúdo em orientação médica ou nutricional.
+Responda exatamente:
 TITULO: ...
-RESUMO: uma frase de até 160 caracteres
+RESUMO: frase de até 160 caracteres
 TEMPO_LEITURA: X min
 ===CORPO===
-(texto em Markdown)"""
-
-
-def _tags(topico: str, titulo: str) -> list[str]:
-    base = ["dicas", TOPICOS[topico][0].lower(), "chocolate"]
-    vistos: list[str] = []
-    for tag in base:
-        if tag not in vistos:
-            vistos.append(tag)
-    return vistos
+texto em Markdown."""
 
 
 def _recortar(texto: str, limite: int) -> str:
     texto = " ".join(texto.split())
-    return texto if len(texto) <= limite else texto[: limite - 1].rstrip() + "…"
+    return texto if len(texto) <= limite else texto[:limite - 1].rstrip() + "…"
 
 
-def montar_payload(dados: dict, topico: str, meta: dict, status: str, cover: dict | None = None) -> dict:
-    slug = llm_service.gerar_slug(dados["titulo"]).strip("-")
-    payload = {
-        "title": dados["titulo"].strip(),
-        "slug": slug,
-        "excerpt": _recortar(dados.get("excerpt") or "", 300) or None,
-        "content": dados["corpo"].strip(),
-        "articleType": "dica",
-        "status": status,
-        "topicSlug": topico,
-        "seoTitle": _recortar(dados["titulo"], 60),
-        "seoDescription": _recortar(dados.get("excerpt") or dados["titulo"], 160),
-        "author": "Chocolícia",
-        "aiModel": f"{meta.get('provedor', '')}:{meta.get('modelo', '')}".strip(":") or None,
-        "generationMeta": {
-            "agent": "agente-chocolicia",
-            "run_date": date.today().isoformat(),
-            "provider": meta.get("provedor", ""),
-            "model": meta.get("modelo", ""),
-            "readTime": dados.get("readTime", ""),
-        },
-        "tags": _tags(topico, dados["titulo"]),
-    }
-    if cover and cover.get("sourceImageUrl"):
-        payload["coverImageUrl"] = cover["sourceImageUrl"]
-        payload["coverImageAlt"] = cover.get("alt") or dados["titulo"]
-    return {k: v for k, v in payload.items() if v is not None}
-
-
-def validar_payload(payload: dict) -> None:
-    erros = []
-    if not payload.get("title"):
-        erros.append("título vazio")
-    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", payload.get("slug", "")):
-        erros.append("slug inválido")
-    if len(payload.get("content", "")) < TAMANHO_MINIMO_CORPO:
-        erros.append(f"conteúdo com menos de {TAMANHO_MINIMO_CORPO} caracteres")
-    if payload.get("articleType") != "dica":
-        erros.append("articleType deve ser 'dica'")
-    if payload.get("status") != "draft":
-        erros.append("dicas editoriais devem ser enviadas somente como draft")
-    if payload.get("topicSlug") not in TOPICOS:
-        erros.append("topicSlug desconhecido")
-    if erros:
-        raise DicaInvalida("Dica reprovada na validação: " + "; ".join(erros))
-
-
-def _cover_do_ambiente() -> dict | None:
+def _cover() -> dict:
     bruto = os.getenv("CHOCOLICIA_COVER_JSON", "").strip()
     if not bruto:
-        return None
+        raise DicaInvalida("Configure CHOCOLICIA_COVER_JSON com uma imagem válida para a publicação.")
     try:
         cover = json.loads(bruto)
     except ValueError as exc:
-        raise DicaInvalida("CHOCOLICIA_COVER_JSON não é JSON válido.") from exc
-    return cover if cover.get("mode", "stock") == "stock" else None
+        raise DicaInvalida("CHOCOLICIA_COVER_JSON não contém JSON válido.") from exc
+    if not isinstance(cover, dict) or cover.get("mode") not in {"stock", "generate"}:
+        raise DicaInvalida("CHOCOLICIA_COVER_JSON deve conter mode=stock ou mode=generate.")
+    return cover
 
 
-def _status(target: str) -> str:
-    """Dicas editoriais são sempre rascunhos; target escolhe apenas o host."""
-    return "draft"
+def montar_payload(dados: dict, topico: str, meta: dict, status: str, run_id: str) -> dict:
+    titulo = dados["titulo"].strip()
+    resumo = _recortar(dados.get("excerpt") or titulo, 160)
+    corpo = dados["corpo"].strip()
+    return {
+        "type": "tip",
+        "title": titulo,
+        "slug": llm_service.gerar_slug(titulo),
+        "excerpt": resumo,
+        "tipTopic": topico,
+        "bodyMd": corpo,
+        "structured": {"direct_answer": resumo},
+        "tags": ["dicas", TOPICOS[topico][0].lower().replace(" ", "-"), "chocolate"],
+        "relatedTopics": [],
+        "cover": _cover(),
+        "coverImageAlt": _recortar(titulo, 240) if len(titulo) >= 8 else f"Dica: {titulo}",
+        "status": status,
+        "aiModel": f"{meta.get('provedor', '')}:{meta.get('modelo', '')}"[:120],
+        "generationMeta": {
+            "run_id": run_id,
+            "topic_slug": topico,
+            "prompt_version": "chocolicia-tips-1.0.0",
+            "phase": int(os.getenv("AGENT_PHASE", "1")),
+            "sources": [],
+            "validators_version": "culinary-content-1.0.0",
+        },
+    }
+
+
+def validar_payload(payload: dict) -> None:
+    if len(payload["title"]) < 5:
+        raise DicaInvalida("Título muito curto.")
+    if len(payload["bodyMd"]) < 600:
+        raise DicaInvalida("A dica precisa ter pelo menos 600 caracteres.")
+    if payload["tipTopic"] not in TOPICOS:
+        raise DicaInvalida("Tópico de dica inválido.")
+    ArtigoV1.model_validate(payload)
 
 
 def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_run: bool = False) -> dict:
-    """Gera, valida e (se não for dry-run) envia uma dica. Lança exceção em qualquer falha."""
     if target not in {"preview", "producao"}:
         raise DicaInvalida("target deve ser 'preview' ou 'producao'.")
     topico = escolher_topico(assunto)
     angulo = random.choice(TOPICOS[topico][1])
     resposta = llm_service.gerar_texto_com_metadados("criacao", montar_prompt(topico, angulo))
     dados = llm_service.parsear_resposta_padrao(resposta["texto"])
-    payload = montar_payload(dados, topico, resposta, _status(target), _cover_do_ambiente())
+    run_id = str(uuid4())
+    payload = montar_payload(dados, topico, resposta, "published", run_id)
     validar_payload(payload)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -152,14 +129,46 @@ def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_
     if dry_run:
         return {"enviado": False, "payload": payload}
 
-    try:
-        resposta_site = site_client.post_content(payload, "dica", topico)
-    except site_client.SiteAPIError as exc:
-        if exc.status_code == 409:
-            raise site_client.SiteAPIError(
-                f"O slug '{payload['slug']}' já existe. Não criei um slug alternativo automaticamente "
-                "para evitar duplicar conteúdo; confira o artigo existente antes de uma nova tentativa.",
-                409,
-            ) from exc
-        raise
-    return {"enviado": True, "payload": payload, "site": resposta_site}
+    base_url = os.getenv("SITE_BASE_URL", "").strip()
+    if not base_url:
+        base_url = os.getenv("SITE_BASE_URL_PROD" if target == "producao" else "SITE_BASE_URL_PREVIEW", "").strip()
+    token_publish = os.getenv("SITE_TOKEN_PUBLISH", "").strip()
+    if not token_publish:
+        token_publish = os.getenv("SITE_TOKEN_PUBLISH_PROD" if target == "producao" else "SITE_TOKEN_PUBLISH_PREVIEW", "").strip()
+    token_draft = os.getenv("SITE_TOKEN_DRAFT", "").strip()
+    if not token_draft:
+        token_draft = os.getenv("SITE_TOKEN_DRAFT_PROD" if target == "producao" else "SITE_TOKEN_DRAFT_PREVIEW", "").strip()
+    if not base_url:
+        raise DicaInvalida("URL do ambiente Chocolícia não configurada.")
+    if not token_publish:
+        raise DicaInvalida("Configure o token de publicação automática do ambiente escolhido.")
+
+    cliente = ClienteSite(
+        base_url,
+        token_draft=token_draft or token_publish,
+        token_publish=token_publish,
+        fase=int(os.getenv("AGENT_PHASE", "1")),
+        contract_version=os.getenv("CONTRACT_VERSION", "1"),
+        dry_run=False,
+        allow_production=(target == "producao"),
+        articles_enabled=True,
+        contract="v1",
+    )
+    resposta_site = cliente.criar_artigo(payload, run_id=run_id)
+    return {"enviado": True, "payload": payload, "site": resposta_site.__dict__}
+
+
+def main() -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description="Gera e publica automaticamente uma dica Chocolícia.")
+    parser.add_argument("--assunto", default="automatico")
+    parser.add_argument("--target", choices=("preview", "producao"), default=os.getenv("TARGET", "preview"))
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    resultado = gerar_dica(args.assunto, args.target, args.dry_run)
+    print(json.dumps(resultado, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
