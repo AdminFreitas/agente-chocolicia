@@ -137,6 +137,20 @@ class Settings:
             llm_base_url = ollama_base + "/v1"
         else:
             llm_base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        # Tokens com escopo têm prioridade. RECIPES_AGENT_TOKEN permanece
+        # como fallback compatível durante a transição para o contrato v1.
+        legacy_site_token = os.getenv("RECIPES_AGENT_TOKEN", "").strip()
+        if target == "production":
+            site_token_draft = os.getenv("SITE_TOKEN_DRAFT", "").strip() or legacy_site_token
+            site_token_publish = os.getenv("SITE_TOKEN_PUBLISH", "").strip() or legacy_site_token
+        else:
+            site_token_draft = (
+                os.getenv("SITE_TOKEN_DRAFT_PREVIEW", "").strip()
+                or os.getenv("SITE_TOKEN_DRAFT", "").strip()
+                or legacy_site_token
+            )
+            site_token_publish = ""
+
         return cls(
             enabled=enabled, environment=env,
             database_url=(os.getenv("AGENT_DATABASE_URL") or os.getenv("DATABASE_URL_AGENTE", "")).strip(),
@@ -148,12 +162,8 @@ class Settings:
             llm_base_url=llm_base_url,
             llm_models=models,
             site_base_url=base,
-            site_token_draft=(
-                os.getenv("SITE_TOKEN_DRAFT", "").strip()
-                if target == "production"
-                else (os.getenv("SITE_TOKEN_DRAFT_PREVIEW") or os.getenv("SITE_TOKEN_DRAFT", "")).strip()
-            ),
-            site_token_publish=os.getenv("SITE_TOKEN_PUBLISH", "").strip() if target == "production" else "",
+            site_token_draft=site_token_draft,
+            site_token_publish=site_token_publish,
             site_phase=phase,
             recipes_agent_token=os.getenv("RECIPES_AGENT_TOKEN", "").strip() if target == "production" else "",
             site_contract=contract,
