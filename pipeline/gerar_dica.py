@@ -116,7 +116,7 @@ def validar_payload(payload: dict) -> None:
     ArtigoV1.model_validate(payload)
 
 
-def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_run: bool = False) -> dict:
+def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_run: bool = False, publish: bool = False) -> dict:
     if target not in {"preview", "producao"}:
         raise DicaInvalida("target deve ser 'preview' ou 'producao'.")
     topico = escolher_topico(assunto)
@@ -124,7 +124,9 @@ def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_
     resposta = llm_service.gerar_texto_com_metadados("criacao", montar_prompt(topico, angulo))
     dados = llm_service.parsear_resposta_padrao(resposta["texto"])
     run_id = str(uuid4())
-    payload = montar_payload(dados, topico, resposta, "published", run_id)
+    phase = int(os.getenv("AGENT_PHASE", "0"))
+    status = "published" if publish else "draft"
+    payload = montar_payload(dados, topico, resposta, status, run_id)
     validar_payload(payload)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -145,14 +147,16 @@ def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_
         token_draft = os.getenv("SITE_TOKEN_DRAFT_PROD" if target == "producao" else "SITE_TOKEN_DRAFT_PREVIEW", "").strip()
     if not base_url:
         raise DicaInvalida("URL do ambiente Chocolícia não configurada.")
-    if not token_publish:
-        raise DicaInvalida("Configure o token de publicação automática do ambiente escolhido.")
+    token_escolhido = token_publish if publish else token_draft
+    if not token_escolhido:
+        tipo_token = "publicação" if publish else "rascunho"
+        raise DicaInvalida(f"Configure o token de {tipo_token} do ambiente escolhido.")
 
     cliente = ClienteSite(
         base_url,
-        token_draft=token_draft or token_publish,
+        token_draft=token_draft,
         token_publish=token_publish,
-        fase=int(os.getenv("AGENT_PHASE", "1")),
+        fase=phase,
         contract_version=os.getenv("CONTRACT_VERSION", "1"),
         dry_run=False,
         allow_production=(target == "producao"),
@@ -169,8 +173,9 @@ def main() -> int:
     parser.add_argument("--assunto", default="automatico")
     parser.add_argument("--target", choices=("preview", "producao"), default=os.getenv("TARGET", "preview"))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
-    resultado = gerar_dica(args.assunto, args.target, args.dry_run)
+    resultado = gerar_dica(args.assunto, args.target, args.dry_run, args.publish)
     print(json.dumps(resultado, ensure_ascii=False, indent=2))
     return 0
 
