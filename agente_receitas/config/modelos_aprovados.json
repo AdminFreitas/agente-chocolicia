@@ -1,11 +1,6 @@
 {
   "criacao": [
     {
-      "provedor": "ollama",
-      "modelo": "qwen2.5:3b",
-      "familia": "qwen2.5"
-    },
-    {
       "provedor": "groq",
       "modelo": "openai/gpt-oss-120b",
       "familia": "openai-gpt-oss"
@@ -22,11 +17,6 @@
     }
   ],
   "reparo": [
-    {
-      "provedor": "ollama",
-      "modelo": "qwen2.5:3b",
-      "familia": "qwen2.5"
-    },
     {
       "provedor": "groq",
       "modelo": "openai/gpt-oss-120b",
@@ -45,11 +35,6 @@
   ],
   "revisao": [
     {
-      "provedor": "ollama",
-      "modelo": "qwen2.5:3b",
-      "familia": "qwen2.5"
-    },
-    {
       "provedor": "groq",
       "modelo": "openai/gpt-oss-120b",
       "familia": "openai-gpt-oss"
@@ -67,11 +52,6 @@
   ],
   "extracao": [
     {
-      "provedor": "ollama",
-      "modelo": "qwen2.5:3b",
-      "familia": "qwen2.5"
-    },
-    {
       "provedor": "groq",
       "modelo": "openai/gpt-oss-120b",
       "familia": "openai-gpt-oss"
@@ -88,11 +68,6 @@
     }
   ],
   "seo": [
-    {
-      "provedor": "ollama",
-      "modelo": "qwen2.5:3b",
-      "familia": "qwen2.5"
-    },
     {
       "provedor": "groq",
       "modelo": "openai/gpt-oss-120b",
