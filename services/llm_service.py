@@ -281,9 +281,9 @@ def gerar_texto_com_metadados(
     return _gerar_texto_com_metadados(tarefa, prompt, tentativas_por_provedor)
 
 
-def gerar_artigo(tema: str, categoria: str = "Tecnologia", tentativas_por_provedor: int = 2) -> dict:
-    prompt = f"""Voce e um escritor especializado em Chocolicia.
-Escreva um artigo em portugues sobre: "{tema}"
+def gerar_artigo(tema: str, categoria: str = "Culinária", tentativas_por_provedor: int = 2) -> dict:
+    prompt = f"""Você é um redator culinário especializado em Chocolícia.
+Escreva um conteúdo culinário em português do Brasil sobre: "{tema}"
 Categoria: {categoria}
 Responda com:
 TITULO: ...
