@@ -258,7 +258,7 @@ def _gerar_texto_com_metadados(
                 )
 
     raise RuntimeError(
-        "Todos os provedores aprovados configurados falharam temporariamente: "
+        "Nenhum provedor aprovado conseguiu gerar a resposta: "
         + "; ".join(erros)
     )
 
