@@ -82,6 +82,7 @@ jobs:
       # --- Imagens (bancos de imagens) ---
       PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      CHOCOLICIA_COVER_JSON: ${{ vars.CHOCOLICIA_COVER_JSON }}
 
     steps:
       - uses: actions/checkout@v4
@@ -133,9 +134,6 @@ jobs:
           ARGS=(--assunto "${ASSUNTO}" --target "${TARGET}")
           if [ "${PUBLISH}" = "true" ] && [ "${DRY_RUN}" != "true" ]; then
             ARGS+=(--publish)
-          fi
-          if [ "${ASSUNTO}" != "automatico" ]; then
-            ARGS+=(--assunto "${ASSUNTO}")
           fi
           if [ "${DRY_RUN}" = "true" ]; then
             ARGS+=(--dry-run)
