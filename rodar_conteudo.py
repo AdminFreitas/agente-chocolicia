@@ -15,7 +15,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from integration.content import build_payload, prompt_for, slugify
-from integration.site_client import post_content
+from agente_receitas.integration.cliente_site import ClienteSite
+from agente_receitas.integration.contratos import ReceitaV1
 from services import llm_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -73,8 +74,25 @@ def run(args: argparse.Namespace) -> dict:
             (output_dir / f"{slug}.schema.jsonld").write_text(
                 json.dumps(schema_org, ensure_ascii=False, indent=2), encoding="utf-8"
             )
+        if args.tipo == "receita":
+            ReceitaV1.model_validate(payload)
         if args.send:
-            result["site_response"] = post_content(payload, args.tipo, slugify(args.tema) or slug)
+            if args.tipo != "receita":
+                raise RuntimeError("Dicas devem usar pipeline.gerar_dica e o contrato ArtigoV1.")
+            base_url = os.getenv("SITE_BASE_URL", "").strip()
+            if not base_url:
+                raise RuntimeError("SITE_BASE_URL não configurada para o ambiente selecionado.")
+            cliente = ClienteSite(
+                base_url,
+                token_draft=os.getenv("SITE_TOKEN_DRAFT"),
+                token_publish=os.getenv("SITE_TOKEN_PUBLISH"),
+                fase=int(os.getenv("AGENT_PHASE", "0")),
+                contract_version=os.getenv("CONTRACT_VERSION", "1"),
+                dry_run=False,
+                articles_enabled=True,
+                contract="v1",
+            )
+            result["site_response"] = cliente.criar_receita(payload, run_id=run_id).__dict__
         else:
             logger.info("Execução local concluída sem envio ao site.")
         result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
