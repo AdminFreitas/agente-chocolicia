@@ -127,7 +127,7 @@ class RespostaCriacao:
     # "duplicada" (a pauta já existe de OUTRA execução; nada foi reenviado) | "dry_run"
     situacao: str
     http_status: int = 0
-    id: Optional[int] = None
+    id: Optional[str] = None
     slug: Optional[str] = None
     status: Optional[str] = None
     url: Optional[str] = None
@@ -415,7 +415,7 @@ class ClienteSite:
                 codigo="article_endpoint_not_deployed",
             )
         tipo = payload.type if isinstance(payload, ArtigoV1) else (payload or {}).get("type")
-        if tipo not in ("technique", "tip", "feature"):
+        if tipo not in ("article", "tip", "technique"):
             raise ContratoInvalido([{"campo": "type", "detalhe": "técnica, dica ou matéria"}])
         return self._criar("/api/articles", tipo, ArtigoV1, payload, run_id, reduzir)
 
