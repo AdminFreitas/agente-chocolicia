@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - feat/dica-articles-site
+      - fix/gemini-client-lifecycle
 
 permissions:
   contents: read
