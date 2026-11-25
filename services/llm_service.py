@@ -97,6 +97,8 @@ def _ordenar_modelos_por_fallback(modelos: list[dict]) -> list[dict]:
 
 
 def _chave_provedor(provedor: str) -> str | None:
+    if provedor == "ollama":
+        return "local"  # Ollama não exige chave de API; disponibilidade é validada na chamada.
     return {
         "gemini": GEMINI_API_KEY,
         "groq": GROQ_API_KEY,
@@ -112,6 +114,7 @@ def _modelo_resolvido(item: dict) -> str:
         "gemini": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
         "groq": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
         "openrouter": os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct"),
+        "ollama": os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
     }
     return padrao.get(item["provedor"], "")
 
@@ -155,6 +158,9 @@ def _chamar_provedor(item: dict, prompt: str) -> str:
     modelo = _modelo_resolvido(item)
     if not modelo:
         raise ModeloNaoAprovado(f"Modelo aprovado sem identificador para {provedor}")
+    if provedor == "ollama":
+        from integration.ollama_provider import gerar_texto as gerar_ollama
+        return gerar_ollama(prompt, modelo)
     if provedor == "gemini":
         return _chamar_gemini(prompt, modelo)
     if provedor in {"groq", "openrouter"}:
