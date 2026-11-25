@@ -143,16 +143,25 @@ def _modelo_resolvido(item: dict) -> str:
     return item.get("modelo", "").strip()
 
 
-def _chamar_gemini(prompt: str, modelo: str) -> str:
+def _novo_cliente_gemini():
     from google import genai
 
-    resposta = genai.Client(api_key=GEMINI_API_KEY).models.generate_content(
-        model=modelo,
-        contents=prompt,
-    )
-    if not getattr(resposta, "text", None):
-        raise RuntimeError("Resposta vazia do Gemini")
-    return resposta.text
+    return genai.Client(api_key=GEMINI_API_KEY)
+
+
+def _chamar_gemini(prompt: str, modelo: str) -> str:
+    # google-genai cria um transporte HTTP no cliente. O cliente precisa manter
+    # uma referência forte durante toda a requisição; usar Client(...) inline
+    # permite que o SDK feche o transporte antes de generate_content terminar
+    # (googleapis/python-genai#1763). O contexto limita o cliente a esta chamada.
+    with _novo_cliente_gemini() as cliente:
+        resposta = cliente.models.generate_content(
+            model=modelo,
+            contents=prompt,
+        )
+        if not getattr(resposta, "text", None):
+            raise RuntimeError("Resposta vazia do Gemini")
+        return resposta.text
 
 
 def _chamar_openai_compativel(prompt: str, modelo: str, provedor: str) -> str:
