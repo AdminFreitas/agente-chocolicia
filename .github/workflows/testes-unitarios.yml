@@ -36,6 +36,7 @@ jobs:
             tests/test_dica.py \
             tests/test_site_client.py \
             tests/test_llm_service.py \
+            tests/test_agente_receitas_llm_service.py \
             tests/test_pixabay_service.py \
             tests/test_hardening.py \
             tests/test_gerar_receita_blog.py
