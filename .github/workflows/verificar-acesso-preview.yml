@@ -43,3 +43,21 @@ jobs:
           test "$status" = "200"
           jq -e '.items | type == "array"' "$response" >/dev/null
           echo "Consulta GET concluída. Nenhum conteúdo foi gerado ou publicado."
+
+      - name: Consultar lista de receitas do Preview (GET)
+        env:
+          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          status="$(curl --silent --show-error \
+            --output "$response" \
+            --write-out "%{http_code}" \
+            --header "x-vercel-trusted-oidc-idp-token: ${VERCEL_TRUSTED_OIDC_TOKEN}" \
+            "https://chocolicia-git-feat-agent-co-7c95ec-chocoliciaartedosdoces-9565.vercel.app/api/recipes?limit=1")"
+          echo "HTTP status: $status"
+          cat "$response"
+          test "$status" = "200"
+          jq -e '.items | type == "array"' "$response" >/dev/null
+          echo "Consulta GET de receitas concluída. Nenhum conteúdo foi criado ou alterado."
