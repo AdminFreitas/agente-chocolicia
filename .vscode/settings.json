@@ -10,5 +10,6 @@
     "**/_legado": true,
     "**/output": true,
     "**/content": true
-  }
+  },
+  "python.terminal.useEnvFile": true
 }
