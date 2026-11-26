@@ -14,7 +14,7 @@ COVER_GERAR = {"mode": "generate", "imagePrompt": "Brigadeiro de colher cremoso 
 COVER_STOCK = {"mode": "stock", "provider": "pexels", "sourceImageUrl": "https://images.pexels.com/photos/7.jpeg",
                "sourcePageUrl": "https://www.pexels.com/photo/7/", "author": "Maria", "license": "Pexels License",
                "attributionText": "Foto por Maria no Pexels"}
-PAUTA = dict(PAUTA_RECEITA, topic_slug="brigadeiro-de-colher-cremoso", ocasiao=["festas"])
+PAUTA = dict(PAUTA_RECEITA, topic_slug="brigadeiro-de-colher-cremoso", ocasiao=["festas"], author_slug="equipe-chocolicia")
 
 
 def conteudo_editor(**mudancas):

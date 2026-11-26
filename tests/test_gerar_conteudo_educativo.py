@@ -31,9 +31,9 @@ def test_fase_0_envia_rascunho_validado_e_registra_a_imagem():
     r = gerar_dica(d, fase=0, run_id="run-1")
     assert (r.estado, r.etapa, r.status_enviado) == ("sent", "envio", "draft") and r.envio.situacao == "criado"
     post = d.site.posts()[0]
-    assert post.url.path == "/api/articles" and post.headers["authorization"] == "Bearer TOKEN-DRAFT-XYZ"
+    assert post.url.path == "/api/tips" and post.headers["authorization"] == "Bearer TOKEN-DRAFT-XYZ"
     b = corpo(post)
-    assert b["type"] == "tip" and b["tipTopic"] == "preparo" and b["subcategorySlug"] == "doces-de-colher" and b["status"] == "draft"
+    assert b["type"] == "dica" and b["tipTopic"] == "preparo" and b["status"] == "draft"
     assert b["title"] == "Ganache talhou? Veja como recuperar" and b["coverImageAlt"] == seo_dica()["texto_alt_imagem"]  # título e alt do SEO
     assert b["cover"]["mode"] == "stock" and b["generationMeta"]["topic_slug"] == "ganache-talhou-como-recuperar" and b["generationMeta"]["phase"] == 0
     assert r.pendencias == []

@@ -84,14 +84,14 @@ def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: 
     finally:
         if hasattr(pesquisa, "descartar_textos"):
             pesquisa.descartar_textos()
+    if criacao.status == "rejeitado":
+        return ResultadoReceita("rejected", "criacao", criacao.rejection_code, ficha=ficha, criacao=criacao)
     if criacao.status != "aprovado":
         return ResultadoReceita(
             "rejected", "validacao", "VALIDACAO-PENDENTE",
             ficha=ficha, criacao=criacao,
             motivos=["a validação completa não aprovou o conteúdo"],
         )
-    if criacao.status == "rejeitado":
-        return ResultadoReceita("rejected", "criacao", criacao.rejection_code, ficha=ficha, criacao=criacao)
     try:
         revisao = revisor.revisar_conteudo(criacao.conteudo, ficha, criacao.modelo.get("familia", ""), gerar=deps.gerar)
     except Exception as exc:
@@ -106,9 +106,16 @@ def gerar_receita(deps: DependenciasReceita, pauta: dict, *, fase: int, run_id: 
         return ResultadoReceita("rejected", "seo", "IMG-08", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result)
     conteudo = seo_result.conteudo
     extras = {"baixar": deps.baixar} if deps.baixar else {}
-    imagem = escolher_capa(conteudo, usadas=deps.usadas, visao=deps.visao, selector=deps.selector, **extras)
-    if imagem.cover is None:
-        return ResultadoReceita("rejected", "imagem", "IMG-07", ficha=ficha, criacao=criacao, revisao=revisao, seo=seo_result, imagem=imagem)
+    imagem = escolher_capa(
+        conteudo, usadas=deps.usadas, visao=deps.visao, selector=deps.selector,
+        geracao_permitida=False, **extras,
+    )
+    if getattr(imagem, "status", "stock") not in {"stock", "generate"} or not imagem.cover:
+        return ResultadoReceita(
+            "rejected", "imagem", "IMG-07", ficha=ficha, criacao=criacao,
+            revisao=revisao, seo=seo_result, imagem=imagem,
+            motivos=list(imagem.pendencias or ["imagem validada indisponível"]),
+        )
     status = "published" if publicar and not dry_run and fase >= 1 else "draft"
     try:
         if getattr(deps.cliente, "contract", "v1") == "legacy":

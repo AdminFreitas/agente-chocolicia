@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 import unicodedata
@@ -98,6 +99,8 @@ def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list
             raise ModeloNaoAprovado(f"Modelo sem identificador aprovado na tarefa '{tarefa}'")
         if not isinstance(familia, str) or not familia.strip():
             raise ModeloNaoAprovado(f"Modelo sem família aprovada na tarefa '{tarefa}'")
+        if not _modelo_gratuito(item):
+            continue
         if familia_excluida is not None and familia == familia_excluida:
             continue
         elegiveis.append(item)
@@ -108,15 +111,26 @@ def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list
     return elegiveis
 
 
+def _modelo_gratuito(item: dict) -> bool:
+    """Filtra custo antes da seleção e de qualquer chamada externa."""
+    provedor = str(item.get("provedor", "")).strip().lower()
+    if provedor == "ollama":
+        return True
+    if os.getenv("LLM_ALLOW_EXTERNAL_FREE", "false").strip().lower() != "true":
+        return False
+    if item.get("gratuito") is not True:
+        return False
+    if provedor == "openrouter":
+        return str(item.get("modelo", "")).strip().endswith(":free")
+    return provedor in {"gemini", "groq"}
+
+
 def validar_configuracao_modelos(tarefas: list[str]) -> None:
-    """Falha antes de qualquer rede se faltar modelo, família independente ou credencial."""
+    """Valida modelos gratuitos antes de qualquer rede."""
     modelos_por_tarefa = {}
     for tarefa in tarefas:
         modelos = _modelos_elegiveis(tarefa)
-        configurados = [
-            item for item in modelos
-            if _chave_provedor(str(item["provedor"])) and str(_chave_provedor(str(item["provedor"]))).strip()
-        ]
+        configurados = [item for item in modelos if _configurado(item)]
         if not configurados:
             raise ModeloNaoAprovado(
                 f"Nenhum modelo aprovado com credencial configurada para a tarefa '{tarefa}'"
@@ -139,7 +153,21 @@ def _chave_provedor(provedor: str) -> str | None:
     }.get(provedor)
 
 
+def _configurado(item: dict) -> bool:
+    provedor = str(item.get("provedor", "")).strip().lower()
+    if provedor == "ollama":
+        nome = str(item.get("modelo", "")).strip()
+        variavel = nome if nome.isupper() and all(c.isalnum() or c == "_" for c in nome) else "OLLAMA_MODEL"
+        return bool(os.getenv(variavel, "").strip())
+    chave = _chave_provedor(provedor)
+    return bool(chave and chave.strip())
+
+
 def _modelo_resolvido(item: dict) -> str:
+    if str(item.get("provedor", "")).strip().lower() == "ollama":
+        nome = str(item.get("modelo", "")).strip()
+        variavel = nome if nome.isupper() and all(c.isalnum() or c == "_" for c in nome) else "OLLAMA_MODEL"
+        return os.getenv(variavel, "").strip()
     return item.get("modelo", "").strip()
 
 
@@ -169,6 +197,24 @@ def _chamar_openai_compativel(prompt: str, modelo: str, provedor: str) -> str:
     return dados["choices"][0]["message"]["content"]
 
 
+def _chamar_ollama(prompt: str, modelo: str) -> str:
+    base = (os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+    if not base.endswith("/v1"):
+        base += "/v1"
+    resposta = httpx.post(
+        f"{base}/chat/completions",
+        headers={"Content-Type": "application/json"},
+        json={"model": modelo, "messages": [{"role": "user", "content": prompt}]},
+        timeout=180,
+    )
+    resposta.raise_for_status()
+    dados = resposta.json()
+    try:
+        return dados["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("Resposta do Ollama fora do formato Chat Completions") from exc
+
+
 def _chamar_provedor(item: dict, prompt: str) -> str:
     provedor = item["provedor"].lower()
     modelo = _modelo_resolvido(item)
@@ -176,6 +222,8 @@ def _chamar_provedor(item: dict, prompt: str) -> str:
         raise ModeloNaoAprovado(f"Modelo aprovado sem identificador para {provedor}")
     if provedor == "gemini":
         return _chamar_gemini(prompt, modelo)
+    if provedor == "ollama":
+        return _chamar_ollama(prompt, modelo)
     if provedor in {"groq", "openrouter"}:
         return _chamar_openai_compativel(prompt, modelo, provedor)
     raise ModeloNaoAprovado(f"Provedor nao suportado: {provedor}")
@@ -196,7 +244,7 @@ def _gerar_com_metadados(
     tentativas = 0
     for item in modelos:
         provedor = item.get("provedor", "")
-        if not _chave_provedor(provedor):
+        if not _configurado(item):
             erros.append(f"{provedor}: chave nao configurada")
             continue
         for _ in range(max(1, tentativas_por_provedor)):

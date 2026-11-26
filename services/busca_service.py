@@ -18,6 +18,7 @@ Nada aqui acessa a rede.
 
 from __future__ import annotations
 
+import os
 import time
 import ipaddress
 import json
@@ -25,7 +26,7 @@ import socket
 from html.parser import HTMLParser
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -49,6 +50,9 @@ class ResultadoBusca:
     url: str
     titulo: str
     dominio: str = ""
+    snippet: str = ""
+    date: str | None = None
+    last_updated: str | None = None
 
     def __post_init__(self) -> None:
         if not self.dominio:
@@ -71,7 +75,10 @@ class Buscador(Protocol):
     nome: str
 
     def buscar(
-        self, consulta: str, dominios: Sequence[str], max_resultados: int
+        self,
+        consulta: str | Sequence[str],
+        dominios: Sequence[str] | None = None,
+        max_resultados: int = 10,
     ) -> list[ResultadoBusca]: ...
 
 
@@ -229,10 +236,149 @@ class LeitorHTTP:
         return self._plain_text(response.text)[:30_000]
 
 
-def criar_buscador(nome: str) -> Buscador:
-    """Fábrica por PESQUISA_PROVEDOR. Só 'mock' existe (provedor não definido)."""
-    if (nome or "mock").strip().lower() == "mock":
+class BuscadorPerplexity:
+    """
+    Provedor de busca com Perplexity Search API (POST https://api.perplexity.ai/search).
+    Usa o SDK oficial (from perplexity import Perplexity).
+    Retorna resultados estruturados (url, titulo, snippet, date, last_updated) sem respostas LLM.
+    """
+
+    nome: str = "perplexity"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        cliente: Any = None,
+        *,
+        country: str | None = "BR",
+        search_context_size: str | None = None,
+        search_language_filter: Sequence[str] | None = None,
+        search_recency_filter: str | None = None,
+        max_retries: int = 2,
+    ) -> None:
+        self.country = country
+        self.search_context_size = search_context_size
+        self.search_language_filter = list(search_language_filter) if search_language_filter else None
+        self.search_recency_filter = search_recency_filter
+        self.max_retries = max_retries
+
+        if cliente is not None:
+            self._cliente = cliente
+        else:
+            resolved_key = (api_key or os.getenv("PERPLEXITY_API_KEY") or "").strip()
+            if not resolved_key:
+                raise ValueError(
+                    "PERPLEXITY_API_KEY não configurada. Crie uma chave em "
+                    "https://console.perplexity.ai e configure a variável de ambiente PERPLEXITY_API_KEY."
+                )
+            from perplexity import Perplexity
+            self._cliente = Perplexity(api_key=resolved_key, max_retries=max_retries)
+
+    def buscar(
+        self,
+        consulta: str | Sequence[str],
+        dominios: Sequence[str] | None = None,
+        max_resultados: int = 10,
+        *,
+        country: str | None = None,
+        search_context_size: str | None = None,
+        search_language_filter: Sequence[str] | None = None,
+        search_recency_filter: str | None = None,
+    ) -> list[ResultadoBusca]:
+        if isinstance(consulta, str):
+            consultas = [consulta.strip()] if consulta.strip() else []
+        else:
+            consultas = [c.strip() for c in consulta if c and c.strip()]
+
+        if not consultas:
+            return []
+
+        limite_resultados = max(1, min(20, int(max_resultados)))
+        domain_filter: list[str] | None = None
+        if dominios:
+            domain_filter = [d.strip() for d in dominios if d and d.strip()][:20]
+
+        pais = country if country is not None else self.country
+        context_size = search_context_size if search_context_size is not None else self.search_context_size
+        lang_filter = list(search_language_filter) if search_language_filter is not None else self.search_language_filter
+        recency_filter = search_recency_filter if search_recency_filter is not None else self.search_recency_filter
+
+        # API Perplexity Search aceita até 5 consultas por requisição
+        lotes = [consultas[i : i + 5] for i in range(0, len(consultas), 5)]
+
+        resultados_consolidados: list[ResultadoBusca] = []
+        urls_vistas: set[str] = set()
+
+        for lote in lotes:
+            kwargs: dict[str, Any] = {
+                "query": lote[0] if len(lote) == 1 else lote,
+                "max_results": limite_resultados,
+            }
+            if domain_filter:
+                kwargs["search_domain_filter"] = domain_filter
+            if pais:
+                kwargs["country"] = pais
+            if context_size in {"low", "medium", "high"}:
+                kwargs["search_context_size"] = context_size
+            if lang_filter:
+                kwargs["search_language_filter"] = lang_filter
+            if recency_filter in {"hour", "day", "week", "month", "year"}:
+                kwargs["search_recency_filter"] = recency_filter
+
+            try:
+                resposta = self._cliente.search.create(**kwargs)
+            except Exception as exc:
+                nome_erro = exc.__class__.__name__
+                status_code = getattr(exc, "status_code", None)
+                if nome_erro == "AuthenticationError" or status_code == 401:
+                    raise RuntimeError(
+                        "Falha de autenticação na API Perplexity (401). "
+                        "Verifique PERPLEXITY_API_KEY em https://console.perplexity.ai."
+                    ) from exc
+                if nome_erro == "RateLimitError" or status_code == 429:
+                    headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
+                    retry_after = headers.get("retry-after") or headers.get("Retry-After")
+                    aviso_retry = f" (Retry-After: {retry_after})" if retry_after else ""
+                    raise RuntimeError(
+                        f"Limite de requisições excedido na API Perplexity (429){aviso_retry}."
+                    ) from exc
+                raise RuntimeError(f"Erro na chamada da API Perplexity: {exc}") from exc
+
+            itens = getattr(resposta, "results", None) or []
+            for item in itens:
+                url = str(getattr(item, "url", "") or "").strip()
+                if not url or url in urls_vistas:
+                    continue
+
+                if dominios and not dominio_permitido(dominio_de(url), dominios):
+                    continue
+
+                urls_vistas.add(url)
+                titulo = str(getattr(item, "title", "") or "").strip()
+                snippet = str(getattr(item, "snippet", "") or "").strip()
+                date_val = getattr(item, "date", None)
+                last_updated_val = getattr(item, "last_updated", None)
+
+                resultados_consolidados.append(
+                    ResultadoBusca(
+                        url=url,
+                        titulo=titulo,
+                        snippet=snippet,
+                        date=str(date_val) if date_val else None,
+                        last_updated=str(last_updated_val) if last_updated_val else None,
+                    )
+                )
+
+        return resultados_consolidados
+
+
+def criar_buscador(nome: str, **kwargs: Any) -> Buscador:
+    """Fábrica por PESQUISA_PROVEDOR."""
+    provedor = (nome or "mock").strip().lower()
+    if provedor == "mock":
         return BuscadorMock()
+    if provedor in {"perplexity", "perplexityai"}:
+        return BuscadorPerplexity(**kwargs)
     raise ProvedorNaoDefinido(
         f"Provedor de busca '{nome}' não implementado (decisão pendente, docs/02 §12)."
     )

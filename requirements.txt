@@ -13,3 +13,4 @@ feedparser==6.0.11
 requests
 Pillow>=11.0
 pytest>=8.0
+perplexityai>=0.49.0

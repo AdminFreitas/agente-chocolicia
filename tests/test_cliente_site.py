@@ -338,17 +338,17 @@ def test_criar_artigo():
     s = Site(resp(201, {"id": 1, "slug": "ganache", "status": "draft", "url": "u"})); c = cliente(s)
     r = c.criar_artigo(artigo(), run_id="run-9")
     req = s.posts()[0]
-    assert r.situacao == "criado" and req.url.path == "/api/articles"
-    assert req.headers["idempotency-key"] == CS.chave_idempotencia("tip", "brigadeiro-de-colher-cremoso", "run-9")
+    assert r.situacao == "criado" and req.url.path == "/api/tips"
+    assert req.headers["idempotency-key"] == CS.chave_idempotencia("dica", "brigadeiro-de-colher-cremoso", "run-9")
     with pytest.raises(CS.ContratoInvalido):
         c.criar_artigo({**artigo(), "type": "noticia"}, run_id="r")
     with pytest.raises(CS.ContratoInvalido):
         c.criar_artigo({"title": "sem tipo"}, run_id="r")
 
 
-def test_artigos_bloqueados_por_padrao():
+def test_tips_exigem_token_draft():
     c = CS.ClienteSite("https://site.test", token_draft="TOKEN-DRAFT-XYZ")
-    with pytest.raises(CS.EndpointBloqueado, match="não está implantado"):
+    with pytest.raises(CS.EscopoLocalInsuficiente, match="falta token"):
         c.criar_artigo(artigo(), run_id="r")
 
 

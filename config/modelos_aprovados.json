@@ -1,20 +1,21 @@
 {
   "criacao": [
-    {"provedor": "gemini", "modelo": "", "familia": ""}
+    {"provedor": "ollama", "modelo": "OLLAMA_MODEL", "familia": "ollama-local"}
   ],
   "reparo": [
-    {"provedor": "gemini", "modelo": "", "familia": ""}
+    {"provedor": "ollama", "modelo": "OLLAMA_MODEL", "familia": "ollama-local"}
   ],
   "revisao": [
-    {"provedor": "groq", "modelo": "", "familia": ""}
+    {"provedor": "ollama", "modelo": "OLLAMA_MODEL", "familia": "ollama-local"},
+    {"provedor": "ollama", "modelo": "OLLAMA_FALLBACK_MODEL", "familia": "ollama-fallback"}
   ],
   "extracao": [
-    {"provedor": "gemini", "modelo": "", "familia": ""}
+    {"provedor": "ollama", "modelo": "OLLAMA_MODEL", "familia": "ollama-local"}
   ],
   "seo": [
-    {"provedor": "openrouter", "modelo": "", "familia": ""}
+    {"provedor": "ollama", "modelo": "OLLAMA_MODEL", "familia": "ollama-local"}
   ],
   "visao": [
-    {"provedor": "gemini", "modelo": "", "familia": ""}
+    {"provedor": "ollama", "modelo": "OLLAMA_MODEL", "familia": "ollama-local"}
   ]
 }

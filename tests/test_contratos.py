@@ -97,7 +97,7 @@ def test_generation_meta():
 
 
 def artigo(**ch):
-    d = {"type": "tip", "title": "Ganache talhou? Como recuperar", "excerpt": "Como recuperar uma ganache que talhou, em poucos passos simples.",
+    d = {"type": "dica", "title": "Ganache talhou? Como recuperar", "excerpt": "Como recuperar uma ganache que talhou, em poucos passos simples.",
          "tipTopic": "preparo", "bodyMd": "Resposta direta...", "cover": COVER_GERAR, "coverImageAlt": "Ganache cremosa na tigela",
          "aiModel": "p/m", "generationMeta": base()["generationMeta"]}
     d.update(ch)
@@ -106,12 +106,8 @@ def artigo(**ch):
 
 def test_artigo_regras_por_tipo():
     C.ArtigoV1.model_validate(artigo())
-    C.ArtigoV1.model_validate(artigo(subcategorySlug="doces-de-colher"))  # subcategoria é opcional em dica
-    C.ArtigoV1.model_validate(artigo(type="technique", tipTopic=None, subcategorySlug="trufas-e-bombons",
-                                     sources=[{"name": "Fonte", "title": "Título", "url": "https://x.test"}], relatedTopics=["a", "b"]))
-    for ruim in (artigo(tipTopic=None), artigo(type="feature", subcategorySlug="x"), artigo(type="technique", tipTopic=None),
-                 artigo(type="technique", tipTopic=None, subcategorySlug="x", sources=[{"name": "F", "title": "T", "url": "u"}], relatedTopics=["so um"]),
-                 artigo(type="technique", subcategorySlug="x", sources=[{"name": "F", "title": "T", "url": "u"}]),  # tipTopic em técnica
-                 artigo(type="noticia"), artigo(relatedTopics=["a"] * 7)):
+    C.ArtigoV1.model_validate(artigo(type="tecnica", relatedTopics=["a", "b"]))
+    C.ArtigoV1.model_validate(artigo(type="materia", relatedTopics=["a", "b"]))
+    for ruim in (artigo(tipTopic=None), artigo(type="feature"), artigo(type="technique"), artigo(type="dica", relatedTopics=["a"] * 7)):
         with pytest.raises(ValidationError):
             C.ArtigoV1.model_validate(ruim)

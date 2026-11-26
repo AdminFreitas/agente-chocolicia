@@ -25,7 +25,7 @@ def montar(c=None, pauta=PAUTA, **kw):
 def test_mapeamento_da_dica():
     d = montar(status="published", cover=COVER_STOCK).model_dump(mode="json", exclude_none=True)
     c = conteudo()
-    assert d["type"] == "tip" and d["tipTopic"] == "preparo" and d["subcategorySlug"] == "doces-de-colher"
+    assert d["type"] == "dica" and d["tipTopic"] == "preparo"
     assert (d["title"], d["excerpt"], d["bodyMd"]) == (c["titulo"], c["descricao_curta"], c["corpo"])
     assert d["slug"] == "ganache-talhou-como-recuperar" and d["structured"] == {"direct_answer": c["resposta_direta"]}
     assert d["relatedTopics"] == c["temas_relacionados"] and d["status"] == "published" and d["cover"] == COVER_STOCK
@@ -40,8 +40,7 @@ def test_mapeamento_da_dica():
 def test_dica_sem_subcategoria():
     p = dict(PAUTA, subcategoria=None, categoria=None)
     d = montar(conteudo(subcategoria=None), pauta=p).model_dump(mode="json", exclude_none=True)
-    assert "subcategorySlug" not in d and d["tipTopic"] == "preparo"
-    assert montar(conteudo(subcategoria=""), pauta=p).subcategorySlug is None
+    assert d["tipTopic"] == "preparo"
 
 
 def test_tags_sem_repetir_assunto_ou_subcategoria():
@@ -70,7 +69,7 @@ def test_assunto_e_subcategoria_da_pauta_e_capa():
         montar(pauta=PAUTA_RECEITA)  # pauta de receita (sem assunto)
 
 
-def test_contrato_do_artigo_e_validado():
+def test_contrato_do_tip_e_validado():
     with pytest.raises(ContratoInvalido):
         montar(conteudo(temas_relacionados=["só um"]))
     with pytest.raises(ContratoInvalido):

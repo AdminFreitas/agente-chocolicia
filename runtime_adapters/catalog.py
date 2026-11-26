@@ -14,6 +14,123 @@ _CATEGORIAS_LEGADAS = (
     "Datas especiais",
 )
 
+_TAXONOMIA_LOCAL = {
+    "categories": [
+        {
+            "slug": "doces-e-sobremesas",
+            "name": "Doces e sobremesas",
+            "subcategories": [
+                {
+                    "slug": "brigadeiros-e-docinhos",
+                    "name": "Brigadeiros e docinhos",
+                    "risk_level": "low",
+                    "riskLevel": "low",
+                    "active": True,
+                    "agent_enabled": True,
+                    "agentEnabled": True,
+                },
+                {
+                    "slug": "doces-de-colher",
+                    "name": "Doces de colher",
+                    "risk_level": "low",
+                    "riskLevel": "low",
+                    "active": True,
+                    "agent_enabled": True,
+                    "agentEnabled": True,
+                },
+                {
+                    "slug": "trufas-e-bombons",
+                    "name": "Trufas e bombons",
+                    "risk_level": "low",
+                    "riskLevel": "low",
+                    "active": True,
+                    "agent_enabled": True,
+                    "agentEnabled": True,
+                },
+                {
+                    "slug": "bolos-simples",
+                    "name": "Bolos simples",
+                    "risk_level": "low",
+                    "riskLevel": "low",
+                    "active": True,
+                    "agent_enabled": True,
+                    "agentEnabled": True,
+                },
+            ],
+        }
+    ]
+}
+
+_TIP_TOPICS_LOCAL = [
+    {
+        "slug": "montagem-e-apresentacao",
+        "name": "Montagem e apresentação",
+        "risk_level": "low",
+        "riskLevel": "low",
+        "active": True,
+        "agent_enabled": True,
+        "agentEnabled": True,
+    },
+    {
+        "slug": "ornamentacao",
+        "name": "Ornamentação",
+        "risk_level": "low",
+        "riskLevel": "low",
+        "active": True,
+        "agent_enabled": True,
+        "agentEnabled": True,
+    },
+    {
+        "slug": "preparo",
+        "name": "Preparo",
+        "risk_level": "medium",
+        "riskLevel": "medium",
+        "active": True,
+        "agent_enabled": True,
+        "agentEnabled": True,
+    },
+    {
+        "slug": "equipamentos-uso",
+        "name": "Uso de equipamentos",
+        "risk_level": "medium",
+        "riskLevel": "medium",
+        "active": True,
+        "agent_enabled": True,
+        "agentEnabled": True,
+    },
+    {
+        "slug": "equipamentos-compra",
+        "name": "Escolha de equipamentos",
+        "risk_level": "medium",
+        "riskLevel": "medium",
+        "active": True,
+        "agent_enabled": True,
+        "agentEnabled": True,
+    },
+    {
+        "slug": "negocios",
+        "name": "Negócios na culinária",
+        "risk_level": "medium",
+        "riskLevel": "medium",
+        "active": True,
+        "agent_enabled": True,
+        "agentEnabled": True,
+    },
+]
+
+_INGREDIENTES_BASE_LOCAL = [
+    {"slug": "leite-condensado", "name": "leite condensado", "aliases": ["leite condensado", "1 lata"], "vegetarian_ok": True, "vegan_ok": False, "needs_label_check": False},
+    {"slug": "chocolate-meio-amargo", "name": "chocolate meio amargo", "aliases": ["chocolate meio amargo picado", "chocolate meio amargo"], "vegetarian_ok": True, "vegan_ok": False, "needs_label_check": False},
+    {"slug": "chocolate-em-po", "name": "chocolate em pó", "aliases": ["chocolate em pó"], "vegetarian_ok": True, "vegan_ok": False, "needs_label_check": False},
+    {"slug": "manteiga", "name": "manteiga", "aliases": ["manteiga sem sal", "manteiga"], "vegetarian_ok": True, "vegan_ok": False, "needs_label_check": False},
+    {"slug": "creme-de-leite", "name": "creme de leite", "aliases": ["creme de leite"], "vegetarian_ok": True, "vegan_ok": False, "needs_label_check": False},
+    {"slug": "acucar", "name": "açúcar", "aliases": ["acucar", "açúcar refinado", "açúcar cristal"], "vegetarian_ok": True, "vegan_ok": True, "needs_label_check": False},
+    {"slug": "farinha-de-trigo", "name": "farinha de trigo", "aliases": ["farinha de trigo"], "vegetarian_ok": True, "vegan_ok": True, "needs_label_check": False},
+    {"slug": "ovo", "name": "ovo", "aliases": ["ovos", "gema", "clara"], "vegetarian_ok": True, "vegan_ok": False, "needs_label_check": False},
+    {"slug": "cacau-em-po", "name": "cacau em pó", "aliases": ["cacau em pó 100%"], "vegetarian_ok": True, "vegan_ok": True, "needs_label_check": False},
+    {"slug": "granulado-de-chocolate", "name": "granulado de chocolate", "aliases": ["chocolate granulado"], "vegetarian_ok": True, "vegan_ok": False, "needs_label_check": False},
+]
+
 
 @dataclass
 class SiteCatalog:
@@ -26,6 +143,8 @@ class SiteCatalog:
         return bool(self.base_url and self.token)
 
     def _get(self, path: str, *, auth_required: bool = True):
+        if not self.disponivel:
+            raise RuntimeError("Requisição HTTP indevida ao catálogo em modo offline/dry-run")
         if auth_required and not self.token:
             raise RuntimeError("Token de leitura do catálogo ausente")
         headers = {"Accept": "application/json"}
@@ -40,10 +159,14 @@ class SiteCatalog:
         return response.json()
 
     def ingredients(self):
+        if not self.disponivel:
+            return list(_INGREDIENTES_BASE_LOCAL)
         data = self._get("/api/catalog/ingredients")
         return data.get("items", data) if isinstance(data, dict) else data
 
     def taxonomy(self):
+        if not self.disponivel:
+            return _TAXONOMIA_LOCAL
         data = self._get("/api/taxonomy", auth_required=False)
         return data.get("items", data) if isinstance(data, dict) else data
 
