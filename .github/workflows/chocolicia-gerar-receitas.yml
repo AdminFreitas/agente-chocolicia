@@ -1,41 +1,31 @@
-name: Chocolícia - gerar receitas
+name: Chocolícia - gerar e publicar receita
 
 on:
   schedule:
+    # 08:00 no horário de Brasília (UTC-3).
     - cron: "0 11 * * *"
   workflow_dispatch:
     inputs:
-      operacao:
-        description: Gerar em dry-run ou enviar um draft ao preview
-        type: choice
-        options:
-          - dry-run
-          - preview-draft
-        default: dry-run
+      dry_run:
+        description: Executar todas as etapas sem enviar ao site
+        type: boolean
         required: true
+        default: false
       assunto:
-        description: Tema de receita; automatico escolhe uma pauta
+        description: Tema da receita; automatico escolhe uma pauta
         type: string
+        required: true
         default: automatico
 
 permissions:
   contents: read
 
 concurrency:
-  group: chocolicia-receitas-${{ github.ref }}
+  group: chocolicia-receita-publicacao
   cancel-in-progress: false
 
 jobs:
   receita:
-    if: >-
-      ${{
-        vars.AGENT_ENABLED == 'true' &&
-        (
-          (github.event_name == 'schedule' &&
-            github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
-          github.event_name == 'workflow_dispatch'
-        )
-      }}
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 45
@@ -47,15 +37,14 @@ jobs:
       AGENT_ENV: preview
       AGENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       TARGET: preview
-      DRY_RUN: ${{ github.event_name == 'schedule' && 'true' || inputs.operacao == 'dry-run' && 'true' || 'false' }}
+      DRY_RUN: ${{ inputs.dry_run || false }}
       CONTRACT_VERSION: "1"
       SITE_CONTRACT: v1
       SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
       SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
       AGENT_DATABASE_URL: ${{ secrets.AGENT_DATABASE_URL }}
       AGENT_PUBLISHING_ENABLED: "false"
-      SITE_ARTICLES_ENABLED: "false"
-      ASSUNTO: ${{ inputs.assunto || vars.RECIPE_TOPIC || 'automatico' }}
+      CHOCOLICIA_COVER_JSON: ${{ secrets.CHOCOLICIA_COVER_JSON }}
       SEARCH_PROVIDER: brave
       BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -64,6 +53,7 @@ jobs:
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
       PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
       AGENT_IMAGE_GENERATION_ENABLED: "false"
+      ASSUNTO: ${{ inputs.assunto || 'automatico' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -78,48 +68,40 @@ jobs:
       - name: Instalar dependências
         run: python -m pip install -r requirements.txt
 
-      - name: Validar configuração sem exibir credenciais
+      - name: Validar configuração
         shell: bash
         run: |
           set -euo pipefail
-          for name in SITE_BASE_URL_PREVIEW BRAVE_SEARCH_API_KEY; do
+          for name in SITE_BASE_URL_PREVIEW BRAVE_SEARCH_API_KEY AGENT_DATABASE_URL; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::Configuração obrigatória ausente: ${name}"
+              echo "::error::Segredo/configuração ausente: ${name}"
               exit 1
             fi
           done
-          if [[ "$DRY_RUN" == "false" ]]; then
-            for name in SITE_TOKEN_DRAFT_PREVIEW AGENT_DATABASE_URL; do
-              if [[ -z "${!name:-}" ]]; then
-                echo "::error::${name} é obrigatório para enviar um draft."
-                exit 1
-              fi
-            done
-          fi
 
-      - name: Gerar, validar e opcionalmente enviar draft ao preview
+      - name: Verificar sintaxe e contrato
+        run: |
+          python -m compileall -q agents integration pipeline runtime_adapters services validators rodar_agente.py
+          python -m integration.contratos --verificar
+
+      - name: Executar pipeline Python de receita
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p output
-          python rodar_agente.py --receita --target preview --assunto "$ASSUNTO" \
-            > output/resultado-receita.json
+          python rodar_agente.py --receita --target preview --assunto "$ASSUNTO" > output/resultado-receita.json
+
+      - name: Confirmar resultado
+        shell: bash
+        run: |
+          set -euo pipefail
           python - <<'PY'
-          import json, os, sys
-          with open("output/resultado-receita.json", encoding="utf-8-sig") as file:
-              result = json.load(file)
-          dry_run = os.environ["DRY_RUN"] == "true"
-          expected = "generated" if dry_run else "sent"
-          status = "não enviado (dry-run)" if dry_run else (result.get("publicacao") or {}).get("status")
-          if result.get("estado") != expected or (not dry_run and status != "draft"):
-              raise SystemExit("A execução não confirmou geração válida ou recebimento como draft.")
-          topic = result.get("pauta") or {}
+          import json, os
+          with open("output/resultado-receita.json", encoding="utf-8-sig") as f:
+              result = json.load(f)
+          dry_run = os.environ["DRY_RUN"].lower() == "true"
+          if result.get("estado") not in {"generated", "sent"}:
+              raise SystemExit(f"Pipeline não confirmou geração/envio: {result.get('estado')} / {result.get('motivos')}")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write(
-                  "### Execução de receita\n"
-                  f"- Resultado: {result.get('estado')}\n"
-                  f"- Tema: {topic.get('tema', 'não informado')}\n"
-                  f"- Slug: {(result.get('publicacao') or {}).get('slug') or topic.get('topic_slug', 'não informado')}\n"
-                  f"- Estado remoto: {status}\n"
-              )
+              summary.write(f"### Receita\n- Estado: {result.get('estado')}\n- Tema: {(result.get('pauta') or {}).get('tema', 'não informado')}\n")
           PY

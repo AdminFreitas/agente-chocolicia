@@ -208,10 +208,52 @@
       "title": "Aimodel",
       "type": "string"
     },
+    "authorId": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorid"
+    },
+    "authorSlug": {
+      "anyOf": [
+        {
+          "maxLength": 180,
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorslug"
+    },
     "bodyMd": {
       "minLength": 1,
       "title": "Bodymd",
       "type": "string"
+    },
+    "canonicalUrl": {
+      "anyOf": [
+        {
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Canonicalurl"
     },
     "cover": {
       "discriminator": {
@@ -245,6 +287,32 @@
     },
     "generationMeta": {
       "$ref": "#/$defs/GenerationMetaV1"
+    },
+    "metaDescription": {
+      "anyOf": [
+        {
+          "maxLength": 320,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Metadescription"
+    },
+    "metaTitle": {
+      "anyOf": [
+        {
+          "maxLength": 180,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Metatitle"
     },
     "relatedTopics": {
       "items": {
@@ -300,21 +368,6 @@
       "default": null,
       "title": "Structured"
     },
-    "subcategorySlug": {
-      "anyOf": [
-        {
-          "maxLength": 120,
-          "minLength": 1,
-          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Subcategoryslug"
-    },
     "tags": {
       "items": {
         "type": "string"
@@ -324,19 +377,11 @@
       "type": "array"
     },
     "tipTopic": {
-      "anyOf": [
-        {
-          "maxLength": 60,
-          "minLength": 1,
-          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Tiptopic"
+      "maxLength": 60,
+      "minLength": 1,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "title": "Tiptopic",
+      "type": "string"
     },
     "title": {
       "maxLength": 180,
@@ -346,9 +391,9 @@
     },
     "type": {
       "enum": [
-        "technique",
-        "tip",
-        "feature"
+        "dica",
+        "tecnica",
+        "materia"
       ],
       "title": "Type",
       "type": "string"
@@ -358,6 +403,7 @@
     "type",
     "title",
     "excerpt",
+    "tipTopic",
     "bodyMd",
     "cover",
     "coverImageAlt",

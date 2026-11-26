@@ -329,6 +329,34 @@
       "title": "Aimodel",
       "type": "string"
     },
+    "authorId": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorid"
+    },
+    "authorSlug": {
+      "anyOf": [
+        {
+          "maxLength": 180,
+          "minLength": 1,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorslug"
+    },
     "collections": {
       "items": {
         "type": "string"
@@ -351,21 +379,29 @@
       "title": "Cooktimemin"
     },
     "cover": {
-      "discriminator": {
-        "mapping": {
-          "generate": "#/$defs/CoverGenerate",
-          "stock": "#/$defs/CoverStock"
-        },
-        "propertyName": "mode"
-      },
-      "oneOf": [
+      "anyOf": [
         {
-          "$ref": "#/$defs/CoverStock"
+          "discriminator": {
+            "mapping": {
+              "generate": "#/$defs/CoverGenerate",
+              "stock": "#/$defs/CoverStock"
+            },
+            "propertyName": "mode"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CoverStock"
+            },
+            {
+              "$ref": "#/$defs/CoverGenerate"
+            }
+          ]
         },
         {
-          "$ref": "#/$defs/CoverGenerate"
+          "type": "null"
         }
       ],
+      "default": null,
       "title": "Cover"
     },
     "coverImageAlt": {
@@ -570,7 +606,6 @@
     "difficulty",
     "ingredients",
     "steps",
-    "cover",
     "coverImageAlt",
     "aiModel",
     "generationMeta"

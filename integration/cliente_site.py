@@ -375,16 +375,15 @@ class ClienteSite:
             ids, len(ids),
         )
 
-    def criar_artigo(self, payload: dict | ArtigoV1, *, run_id: str, reduzir: Optional[Callable[[dict], dict]] = None) -> RespostaCriacao:
-        if not self.articles_enabled:
-            raise EndpointBloqueado(
-                "publicação de dicas/artigos bloqueada: POST /api/articles não está implantado",
-                codigo="article_endpoint_not_deployed",
-            )
+    def criar_tip(self, payload: dict | ArtigoV1, *, run_id: str, reduzir: Optional[Callable[[dict], dict]] = None) -> RespostaCriacao:
         tipo = payload.type if isinstance(payload, ArtigoV1) else (payload or {}).get("type")
-        if tipo not in ("technique", "tip", "feature"):
+        if tipo not in ("dica", "tecnica", "materia"):
             raise ContratoInvalido([{"campo": "type", "detalhe": "técnica, dica ou matéria"}])
-        return self._criar("/api/articles", tipo, ArtigoV1, payload, run_id, reduzir)
+        return self._criar("/api/tips", tipo, ArtigoV1, payload, run_id, reduzir)
+
+    def criar_artigo(self, payload: dict | ArtigoV1, *, run_id: str, reduzir: Optional[Callable[[dict], dict]] = None) -> RespostaCriacao:
+        """Alias de compatibilidade; o contrato efetivo é POST /api/tips."""
+        return self.criar_tip(payload, run_id=run_id, reduzir=reduzir)
 
     def _criar_receita_legada(
         self, payload, *, idempotency_key: Optional[str], run_id: str

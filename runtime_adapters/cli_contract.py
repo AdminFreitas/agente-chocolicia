@@ -48,7 +48,7 @@ def build_services(
         gerar=runtime.generate,
         cliente=runtime.site_client,
         catalogo=runtime.catalog,
-        selector=ImageSelector(),
+        selector=getattr(runtime, "image_selector", None) or ImageSelector(),
         usadas=runtime.store or ImagensUsadasMemoria(),
         visao=getattr(runtime, "vision", None) or SemVisao(),
         validador=ValidadorPontoUnico(),
@@ -66,8 +66,8 @@ def build_services(
         return result
     if subcategoria:
         raise ValueError("dicas não aceitam --subcategoria")
-    if not runtime.settings.site_articles_enabled:
-        raise ConfigurationError("SITE_ARTICLES_ENABLED deve estar habilitado para o fluxo de dicas")
+    if not runtime.settings.site_tips_enabled:
+        raise ConfigurationError("SITE_TIPS_ENABLED deve estar habilitado para o fluxo de conteúdo educativo")
 
     from agents.planejador import (
         AssuntoDica,
@@ -82,7 +82,6 @@ def build_services(
     )
     from pipeline.gerar_conteudo_educativo import DependenciasDica
     from services.busca_service import Orcamento, LeitorHTTP
-    from services.image_providers import ImageSelector
     from validators.dica import ValidadorDica
     from pathlib import Path
     import json
@@ -163,7 +162,7 @@ def build_services(
         gerar=runtime.generate,
         validador=ValidadorDica(),
         visao=runtime.vision or SemVisao(),
-        selector=ImageSelector(),
+        selector=getattr(runtime, "image_selector", None) or ImageSelector(),
         usadas=runtime.store or ImagensUsadasMemoria(),
         conteudo_existente=None if dry_run else runtime.catalog,
         bloqueios=BloqueiosMemoria(bloqueios),

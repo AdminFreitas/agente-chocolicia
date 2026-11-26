@@ -122,7 +122,7 @@ def test_composicao_entrega_dependencias_reais_de_receita(monkeypatch):
 
     generator = object()
     runtime = SimpleNamespace(
-        settings=SimpleNamespace(site_phase=0, request_timeout=30, site_articles_enabled=True),
+        settings=SimpleNamespace(site_phase=0, request_timeout=30, site_tips_enabled=True),
         search_providers=[],
         generate=generator,
         site_client=object(),

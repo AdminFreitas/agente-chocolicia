@@ -22,6 +22,8 @@ ImagensUsadas.registrar() depois do sucesso no site.
 from __future__ import annotations
 
 import logging
+import json
+import os
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol, Sequence
 from urllib.parse import urlparse
@@ -42,6 +44,7 @@ MIN_WIDTH = 1280  # docs/08 IMG-02
 MAX_DOWNLOADS = 6
 MAX_VERIFICACOES_VISAO = 4
 CANDIDATAS_POR_BUSCA = 5
+IDIOMAS_BUSCA = ("pt", "en")
 _AUTOR_PLACEHOLDER = {
     "autor desconhecido", "autor wikimedia", "pixabay contributor", "pexels photographer", "unknown", "desconhecido",
 }
@@ -149,6 +152,7 @@ class ImageSelector:
         *,
         hosts_permitidos: Optional[Sequence[str]] = None,
         min_width: int = MIN_WIDTH,
+        cover_override: Optional[dict] = None,
     ):
         # Ordem de prioridade (01 §8.2 passo 1): Pixabay, Pexels, Openverse, Wikimedia.
         self.providers = list(providers) if providers is not None else [
@@ -158,6 +162,28 @@ class ImageSelector:
             hosts_permitidos = [h for p in self.providers for h in getattr(p, "IMAGE_HOSTS", ())]
         self.hosts = list(hosts_permitidos)
         self.min_width = min_width
+        self.cover_override = cover_override if cover_override is not None else self._load_cover_override()
+
+    @staticmethod
+    def _load_cover_override() -> Optional[dict]:
+        raw = os.getenv("CHOCOLICIA_COVER_JSON", "").strip()
+        if not raw:
+            return None
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("CHOCOLICIA_COVER_JSON deve conter JSON válido") from exc
+        if not isinstance(value, dict) or value.get("mode") not in {"stock", "generate"}:
+            raise ValueError("CHOCOLICIA_COVER_JSON deve conter mode stock ou generate")
+        if value["mode"] == "stock":
+            required = ("provider", "sourceImageUrl", "sourcePageUrl", "author", "license", "attributionText")
+            if any(not isinstance(value.get(key), str) or not value[key].strip() for key in required):
+                raise ValueError("CHOCOLICIA_COVER_JSON stock exige proveniência completa")
+            if not value["sourceImageUrl"].startswith("https://") or not value["sourcePageUrl"].startswith("https://"):
+                raise ValueError("CHOCOLICIA_COVER_JSON stock exige URLs HTTPS")
+        elif not isinstance(value.get("imagePrompt"), str) or not value["imagePrompt"].strip():
+            raise ValueError("CHOCOLICIA_COVER_JSON generate exige imagePrompt")
+        return value
 
     # ---- triagem sem download ---------------------------------------------------
 
@@ -214,82 +240,111 @@ class ImageSelector:
         usadas: ImagensUsadas,
         visao: VerificadorVisao,
         baixar: Callable[..., ImagemBaixada] = baixar_imagem_em_memoria,
-        geracao_permitida: bool = True,
-        lang: str = "en",
+        geracao_permitida: bool = False,
+        lang: str | Sequence[str] = IDIOMAS_BUSCA,
     ) -> ResultadoImagem:
         res = ResultadoImagem(status="generate")
-        ativos = [p for p in self.providers if p.is_available()]
+        if self.cover_override is not None:
+            if self.cover_override["mode"] == "stock":
+                res.status, res.cover, res.meta = "stock", dict(self.cover_override), {"override": True}
+                return res
+            if geracao_permitida:
+                res.cover = dict(self.cover_override)
+                return res
+            res.status, res.cover = "sem_imagem", None
+            res.pendencias.append("IMG-07: geração por IA indisponível (teto diário)")
+            return res
+        ativos = []
+        for prov in self.providers:
+            try:
+                if prov.is_available():
+                    ativos.append(prov)
+            except Exception as exc:
+                log.warning("%s: indisponível (%s)", getattr(prov, "name", "provedor"), type(exc).__name__)
         if not ativos:
             res.pendencias.append("nenhum provedor de banco de imagens disponível (configurar chaves)")
 
+        idiomas = (lang,) if isinstance(lang, str) else tuple(lang)
+        idiomas = tuple(dict.fromkeys(i.strip().lower() for i in idiomas if i and i.strip())) or IDIOMAS_BUSCA
         vistos: set[tuple[str, str]] = set()
-        abortar = False
+        downloads_por_provedor: dict[str, int] = {}
+        verificacoes_por_provedor: dict[str, int] = {}
         for termo in (t.strip() for t in termos if t and t.strip()):  # do mais específico ao mais geral
-            if abortar:
-                break
-            for prov in ativos:
-                if abortar:
-                    break
-                res.buscas += 1
-                try:
-                    candidatas = prov.search(query=termo, limit=CANDIDATAS_POR_BUSCA, min_width=self.min_width, lang=lang)
-                except Exception as exc:
-                    log.warning("%s: falha na busca (%s)", prov.name, type(exc).__name__)
-                    continue
-
-                for c in candidatas:
-                    chave = (c.provider, c.provider_image_id)
-                    if chave in vistos:
+            for idioma in idiomas:
+                for prov in ativos:
+                    nome_provedor = getattr(prov, "name", type(prov).__name__)
+                    if downloads_por_provedor.get(nome_provedor, 0) >= MAX_DOWNLOADS:
+                        res.pendencias.append(f"{nome_provedor}: limite de downloads atingido")
                         continue
-                    vistos.add(chave)
-                    ident = {"provider": c.provider, "id": c.provider_image_id}
-
-                    motivo = self._triagem(c, usadas)
-                    if motivo:
-                        res.rejeitadas.append({**ident, "codigo": motivo[0], "motivo": motivo[1]})
+                    if verificacoes_por_provedor.get(nome_provedor, 0) >= MAX_VERIFICACOES_VISAO:
+                        res.pendencias.append(f"{nome_provedor}: limite de verificações por visão atingido")
                         continue
-                    if res.downloads >= MAX_DOWNLOADS or res.verificacoes_visao >= MAX_VERIFICACOES_VISAO:
-                        res.pendencias.append("limite de downloads ou verificações por visão atingido")
-                        abortar = True
-                        break
-
-                    res.downloads += 1
+                    res.buscas += 1
                     try:
-                        img = baixar(c.original_image_url, hosts_permitidos=self.hosts)
+                        candidatas = prov.search(query=termo, limit=CANDIDATAS_POR_BUSCA, min_width=self.min_width, lang=idioma)
                     except Exception as exc:
-                        res.rejeitadas.append({**ident, "codigo": "IMG-03", "motivo": f"download recusado: {type(exc).__name__}"})
-                        continue
-                    if img.largura < self.min_width:  # IMG-02 no arquivo real
-                        res.rejeitadas.append({**ident, "codigo": "IMG-02", "motivo": f"largura real {img.largura} < {self.min_width}"})
-                        continue
-                    if usadas.usada_hash(img.sha256):  # IMG-05 por conteúdo
-                        res.rejeitadas.append({**ident, "codigo": "IMG-05", "motivo": "mesma imagem (hash) já usada"})
+                        log.warning("%s: falha na busca (%s)", nome_provedor, type(exc).__name__)
                         continue
 
-                    try:
-                        v = visao.verificar(img.conteudo, img.mime, esperado)
-                    except VisaoIndisponivel as exc:
-                        res.pendencias.append(f"IMG-04: {exc}")
-                        abortar = True
-                        break
-                    except Exception as exc:
+                    for c in candidatas or []:
+                        chave = (c.provider, c.provider_image_id)
+                        if chave in vistos:
+                            continue
+                        vistos.add(chave)
+                        ident = {"provider": c.provider, "id": c.provider_image_id}
+
+                        motivo = self._triagem(c, usadas)
+                        if motivo:
+                            res.rejeitadas.append({**ident, "codigo": motivo[0], "motivo": motivo[1]})
+                            continue
+                        if downloads_por_provedor.get(nome_provedor, 0) >= MAX_DOWNLOADS or verificacoes_por_provedor.get(nome_provedor, 0) >= MAX_VERIFICACOES_VISAO:
+                            res.pendencias.append(f"{nome_provedor}: limite de downloads ou verificações por visão atingido")
+                            break
+
+                        res.downloads += 1
+                        downloads_por_provedor[nome_provedor] = downloads_por_provedor.get(nome_provedor, 0) + 1
+                        try:
+                            img = baixar(c.original_image_url, hosts_permitidos=self.hosts)
+                        except Exception as exc:
+                            res.rejeitadas.append({**ident, "codigo": "IMG-03", "motivo": f"download recusado: {type(exc).__name__}"})
+                            continue
+                        if img.largura < self.min_width:  # IMG-02 no arquivo real
+                            res.rejeitadas.append({**ident, "codigo": "IMG-02", "motivo": f"largura real {img.largura} < {self.min_width}"})
+                            continue
+                        if usadas.usada_hash(img.sha256):  # IMG-05 por conteúdo
+                            res.rejeitadas.append({**ident, "codigo": "IMG-05", "motivo": "mesma imagem (hash) já usada"})
+                            continue
+
+                        try:
+                            v = visao.verificar(img.conteudo, img.mime, esperado)
+                        except VisaoIndisponivel as exc:
+                            # A ausência de visão reprova apenas esta candidata.
+                            # Não é seguro aprová-la, mas ainda é válido procurar
+                            # outra candidata/provedor.
+                            res.pendencias.append(f"IMG-04: {exc}")
+                            res.rejeitadas.append({**ident, "codigo": "IMG-04", "motivo": "verificação visual indisponível"})
+                            continue
+                        except Exception as exc:
+                            res.verificacoes_visao += 1
+                            verificacoes_por_provedor[nome_provedor] = verificacoes_por_provedor.get(nome_provedor, 0) + 1
+                            res.rejeitadas.append({**ident, "codigo": "IMG-04", "motivo": f"erro na verificação: {type(exc).__name__}"})
+                            continue
                         res.verificacoes_visao += 1
-                        res.rejeitadas.append({**ident, "codigo": "IMG-04", "motivo": f"erro na verificação: {type(exc).__name__}"})
-                        continue
-                    res.verificacoes_visao += 1
-                    if not v.aprovado:
-                        res.rejeitadas.append({**ident, "codigo": "IMG-04", "motivo": "reprovada: " + ", ".join(v.reprovados())})
-                        continue
+                        verificacoes_por_provedor[nome_provedor] = verificacoes_por_provedor.get(nome_provedor, 0) + 1
+                        if not v.aprovado:
+                            res.rejeitadas.append({**ident, "codigo": "IMG-04", "motivo": "reprovada: " + ", ".join(v.reprovados())})
+                            continue
 
-                    res.status = "stock"
-                    res.cover = self._cover_stock(c)
-                    res.meta = {
-                        "provider_image_id": c.provider_image_id,
-                        "width": img.largura, "height": img.altura, "sha256": img.sha256,
-                        "mime": img.mime, "search_query": termo, "license_url": c.license_url,
-                        "author_url": c.photographer_url, "visao": v.observacao,
-                    }
-                    return res  # os bytes da imagem não saem daqui
+                        res.status = "stock"
+                        res.cover = self._cover_stock(c)
+                        res.meta = {
+                            "provider_image_id": c.provider_image_id,
+                            "width": img.largura, "height": img.altura, "sha256": img.sha256,
+                            "mime": img.mime, "search_query": termo, "search_language": idioma,
+                            "license_url": c.license_url,
+                            "author_url": c.photographer_url, "visao": v.observacao,
+                        }
+                        return res  # os bytes da imagem não saem daqui
 
         # Nenhuma candidata utilizável (IMG-07): geração por IA, se o teto permitir.
         if geracao_permitida:

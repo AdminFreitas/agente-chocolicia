@@ -67,7 +67,7 @@ class Settings:
     site_phase: int
     site_contract: str
     contract_version: str
-    site_articles_enabled: bool
+    site_tips_enabled: bool
     request_timeout: float
     llm_timeout: float
     max_searches: int
@@ -81,23 +81,32 @@ class Settings:
         env = (os.getenv("AGENT_ENV") or "development").strip().lower()
         if env not in {"development", "test", "preview", "production"}:
             raise ConfigurationError("AGENT_ENV inválido")
-        configured_provider = os.getenv("LLM_PROVIDER", "").strip().lower()
-        # Ollama local é a rota padrão quando o endpoint local está configurado.
-        # O provedor compatível continua disponível para ambientes explicitamente
-        # configurados, mas nunca é usado como fallback para um serviço pago.
-        provider = configured_provider or "ollama"
+        provider = (os.getenv("LLM_PROVIDER") or "openai-compatible").strip().lower()
+        if provider == "ollama":
+            raise ConfigurationError("LLM_PROVIDER=ollama não é suportado")
         search = (os.getenv("SEARCH_PROVIDER") or "brave").strip().lower()
         phase = _int("AGENT_PHASE", 0, 0)
         if phase > 3:
             raise ConfigurationError("SITE_PHASE deve estar entre 0 e 3")
+        # O endpoint oficial do agente é POST /api/recipes no contrato v1.
+        # O contrato legado permanece disponível apenas para compatibilidade
+        # explícita; nunca deve ser escolhido por omissão.
         contract = (os.getenv("SITE_CONTRACT") or "v1").strip().lower()
-        if contract != "v1":
-            raise ConfigurationError("SITE_CONTRACT deve ser v1")
+        if contract not in {"legacy", "v1"}:
+            raise ConfigurationError("SITE_CONTRACT deve ser legacy ou v1")
         contract_version = (os.getenv("CONTRACT_VERSION") or "1").strip()
-        if contract_version != "1":
-            raise ConfigurationError("CONTRACT_VERSION deve ser 1")
+        if contract == "v1" and contract_version != "1":
+            raise ConfigurationError("CONTRACT_VERSION deve ser 1 para SITE_CONTRACT=v1")
         base_name = "SITE_BASE_URL" if target == "production" else "SITE_BASE_URL_PREVIEW"
-        base = (os.getenv(base_name) or (os.getenv("SITE_BASE_URL") if target == "preview" else "") or "").strip()
+        # Ambientes são isolados: preview nunca herda a URL de produção.
+        base = os.getenv(base_name, "").strip()
+        if not base:
+            alias = "CHOCOLICIA_SITE_URL" if target == "production" else "CHOCOLICIA_SITE_URL_PREVIEW"
+            base = os.getenv(alias, "").strip()
+        # Em testes locais, SITE_BASE_URL é o nome histórico aceito pelo
+        # harness; fora de test não há fallback entre preview e produção.
+        if not base and env == "test":
+            base = os.getenv("SITE_BASE_URL", "").strip()
         if not base and env == "test":
             base = "http://127.0.0.1:3000"
         if base:
@@ -108,33 +117,18 @@ class Settings:
         ):
             model = os.getenv(f"LLM_MODEL_{task.upper()}", "").strip()
             family = os.getenv(f"LLM_FAMILY_{task.upper()}", "").strip()
-            if provider == "ollama" and not model and task != "vision":
-                model = os.getenv("OLLAMA_MODEL", "").strip()
-            if provider == "ollama" and not family:
-                family = "ollama-local"
             if model and family:
                 models[task] = {"model": model, "family": family}
-        if enabled and search == "brave" and not os.getenv("BRAVE_SEARCH_API_KEY"):
-            raise ConfigurationError("BRAVE_SEARCH_API_KEY ausente")
-        ollama_base = (
-            os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_URL")
-            or "http://127.0.0.1:11434"
-        ).rstrip("/")
-        if ollama_base.startswith("http://localhost:"):
-            ollama_base = ollama_base.replace("http://localhost:", "http://127.0.0.1:", 1)
-        if provider == "ollama" and ollama_base.endswith("/v1"):
-            llm_base_url = ollama_base
-        elif provider == "ollama":
-            llm_base_url = ollama_base + "/v1"
-        else:
-            llm_base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        # Brave sem chave fica indisponível e é ignorado pelo adaptador; a
+        # ausência de busca não deve interromper uma execução de custo zero.
+        llm_base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         return cls(
             enabled=enabled, environment=env,
             database_url=(os.getenv("AGENT_DATABASE_URL") or os.getenv("DATABASE_URL_AGENTE", "")).strip(),
             search_provider=search,
             brave_api_key=os.getenv("BRAVE_SEARCH_API_KEY", "").strip(),
             llm_provider=provider,
-            llm_api_key=os.getenv("LLM_API_KEY", "").strip() or ("ollama-local" if provider == "ollama" else ""),
+            llm_api_key=os.getenv("LLM_API_KEY", "").strip(),
             llm_base_url=llm_base_url,
             llm_models=models,
             site_base_url=base,
@@ -147,9 +141,9 @@ class Settings:
             site_phase=phase,
             site_contract=contract,
             contract_version=contract_version,
-            site_articles_enabled=os.getenv("SITE_ARTICLES_ENABLED", "false").lower() == "true",
+            site_tips_enabled=os.getenv("SITE_TIPS_ENABLED", "false").lower() == "true",
             request_timeout=float(os.getenv("AGENT_REQUEST_TIMEOUT") or "30"),
-            llm_timeout=float(os.getenv("LLM_REQUEST_TIMEOUT") or ("180" if provider == "ollama" else "90")),
+            llm_timeout=float(os.getenv("LLM_REQUEST_TIMEOUT") or "90"),
             max_searches=_int("SEARCH_MAX_QUERIES", 8),
             max_pages=_int("SEARCH_MAX_RESULTS", 6),
         )

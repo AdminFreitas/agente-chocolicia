@@ -4,8 +4,32 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import sys
 import uuid
+
+# O runtime lê as configurações durante a importação de alguns módulos. Carregue
+# o arquivo uma única vez, antes de importar qualquer adaptador do runtime, sem
+# sobrescrever variáveis já fornecidas pelo ambiente de execução.
+try:
+    from dotenv import load_dotenv
+except ImportError:  # mantém o CLI utilizável sem tornar dotenv obrigatório
+    def load_dotenv(dotenv_path, *, override=False):
+        caminho = Path(dotenv_path)
+        if not caminho.is_file():
+            return False
+        for linha in caminho.read_text(encoding="utf-8").splitlines():
+            linha = linha.strip()
+            if not linha or linha.startswith("#") or "=" not in linha:
+                continue
+            nome, valor = linha.split("=", 1)
+            nome = nome.strip()
+            valor = valor.strip().strip('"').strip("'")
+            if nome and (override or nome not in os.environ):
+                os.environ[nome] = valor
+        return True
+
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 from runtime_adapters.cli_contract import build_services
 
@@ -20,7 +44,7 @@ def _gerar_tema_receita(gerar, store, categoria: str) -> str:
     )
     tema = gerar("creation", prompt).texto.strip().splitlines()[0].strip().strip('"')
     if not 5 <= len(tema) <= 120 or tema.casefold() == "automatico":
-        raise ValueError("Ollama não retornou um tema de receita utilizável")
+        raise ValueError("O provedor LLM não retornou um tema de receita utilizável")
     return tema
 
 
@@ -92,13 +116,7 @@ def main(argv: list[str] | None = None) -> int:
                 "motivo": "publicação exige AGENT_PHASE >= 1",
             }, ensure_ascii=False))
             return 2
-        if args.dry_run:
-            print(json.dumps({
-                "estado": "bloqueado",
-                "motivo": "production exige DRY_RUN=false; use preview para dry-run",
-            }, ensure_ascii=False))
-            return 2
-        if os.environ.get("AGENT_PUBLISHING_ENABLED", "false").strip().lower() != "true":
+        if not args.dry_run and os.environ.get("AGENT_PUBLISHING_ENABLED", "false").strip().lower() != "true":
             print(json.dumps({
                 "estado": "bloqueado",
                 "motivo": "AGENT_PUBLISHING_ENABLED não está habilitado",

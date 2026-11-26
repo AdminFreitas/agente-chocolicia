@@ -2,8 +2,7 @@
 pipeline/gerar_conteudo_educativo.py — Dicas (docs/01 §7.2, docs/07 §3 a §5, docs/04 §6.7).
 
 Orquestra, para UMA dica por chamada: pauta (com assunto) -> pesquisa -> criação (Chef IA)
--> revisão por IA (família diferente) -> SEO -> capa -> payload v1 -> POST /api/articles.
-Técnica e matéria: PENDENTE (prompts de docs/03 §8 e §9 ainda não escritos).
+-> revisão por IA (família diferente) -> SEO -> capa -> payload v1 -> POST /api/tips.
 
 Tudo o que é externo entra por injeção (DependenciasDica); nada aqui lê .env, usa rede
 ou LLM por conta própria. Regras de fail-closed desta etapa:
@@ -262,12 +261,12 @@ def gerar_dica(
         except Exception as exc:
             return falhar("error", "armazenamento_interno", "ARMAZENAMENTO-ERRO", type(exc).__name__)
         r.estado, r.etapa, r.status_enviado = "generated", "armazenamento_interno", "pending_site_api"
-        r.pendencias.append("PENDENTE: POST /api/articles não está disponível; conteúdo preservado internamente")
+        r.pendencias.append("conteúdo preservado internamente; envio à API foi explicitamente desabilitado")
         return r
 
     # ---- 8. envio
     try:
-        envio = deps.cliente.criar_artigo(payload, run_id=run_id)
+        envio = deps.cliente.criar_tip(payload, run_id=run_id)
     except ErroSite as exc:
         return falhar("error", "envio", exc.codigo or type(exc).__name__, str(exc))
     except ContratoInvalido as exc:
@@ -280,7 +279,7 @@ def gerar_dica(
         return r
 
     # só agora a imagem conta como usada (docs/08 IMG-05; selector.py)
-    if img.status == "stock":
+    if img.status == "stock" and img.meta.get("sha256"):
         m = img.meta
         usadas.registrar(img.cover["sourceImageUrl"], m["sha256"], img.cover["provider"], m["provider_image_id"])
     r.estado, r.etapa = "sent", "envio"

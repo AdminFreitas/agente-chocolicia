@@ -134,6 +134,8 @@ class ReceitaV1(_Estrito):
     excerpt: str = Field(min_length=20, max_length=160)
     intro: Optional[str] = Field(default=None, max_length=2000)  # limite da doc: não informado
     subcategorySlug: str = Field(min_length=1, max_length=120, pattern=SLUG_RE)
+    authorId: Optional[int] = Field(default=None, gt=0)
+    authorSlug: Optional[str] = Field(default=None, min_length=1, max_length=180, pattern=SLUG_RE)
     secondarySubcategorySlugs: list[str] = Field(default_factory=list, max_length=2)
     prepTimeMin: int = Field(ge=1, le=1440)
     cookTimeMin: Optional[int] = Field(default=None, ge=0, le=1440)
@@ -150,7 +152,7 @@ class ReceitaV1(_Estrito):
     occasions: list[str] = Field(default_factory=list)
     collections: list[str] = Field(default_factory=list)
     diet: list[str] = Field(default_factory=list)
-    cover: Cover
+    cover: Optional[Cover] = None
     coverImageAlt: str = Field(min_length=8, max_length=240)
     status: Literal["draft", "published"] = "draft"  # D-06: o padrão é draft
     aiModel: str = Field(min_length=1, max_length=120)
@@ -194,7 +196,7 @@ class ReceitaLegada(_Estrito):
     category: str = Field(min_length=2, max_length=80)
     categorySlug: Optional[str] = Field(default=None, min_length=1, max_length=120, pattern=SLUG_RE)
     subcategorySlug: Optional[str] = Field(default=None, min_length=1, max_length=120, pattern=SLUG_RE)
-    coverImageUrl: AnyHttpUrl
+    coverImageUrl: Optional[AnyHttpUrl] = None
     coverImageAlt: str = Field(min_length=8, max_length=240)
     ingredients: list[SecaoIngredientesLegada] = Field(min_length=1, max_length=20)
     steps: list[PassoLegado] = Field(min_length=2, max_length=30)
@@ -217,12 +219,13 @@ class FonteArtigoV1(_Estrito):
 
 
 class ArtigoV1(_Estrito):
-    type: Literal["technique", "tip", "feature"]
+    type: Literal["dica", "tecnica", "materia"]
     title: str = Field(min_length=5, max_length=180)
     slug: Optional[str] = Field(default=None, min_length=3, max_length=180, pattern=SLUG_RE)
     excerpt: str = Field(min_length=20, max_length=160)
-    subcategorySlug: Optional[str] = Field(default=None, min_length=1, max_length=120, pattern=SLUG_RE)
-    tipTopic: Optional[str] = Field(default=None, min_length=1, max_length=60, pattern=SLUG_RE)
+    tipTopic: str = Field(min_length=1, max_length=60, pattern=SLUG_RE)
+    authorId: Optional[int] = Field(default=None, gt=0)
+    authorSlug: Optional[str] = Field(default=None, min_length=1, max_length=180, pattern=SLUG_RE)
     bodyMd: str = Field(min_length=1)  # limites por tipo: docs/04 §10 (validators)
     structured: Optional[dict] = None
     sources: list[FonteArtigoV1] = Field(default_factory=list)
@@ -230,6 +233,9 @@ class ArtigoV1(_Estrito):
     relatedTopics: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(default_factory=list, max_length=6)
     cover: Cover
     coverImageAlt: str = Field(min_length=8, max_length=240)
+    metaTitle: Optional[str] = Field(default=None, max_length=180)
+    metaDescription: Optional[str] = Field(default=None, max_length=320)
+    canonicalUrl: Optional[AnyHttpUrl] = None
     status: Literal["draft", "published"] = "draft"
     aiModel: str = Field(min_length=1, max_length=120)
     generationMeta: GenerationMetaV1
@@ -237,16 +243,8 @@ class ArtigoV1(_Estrito):
     @model_validator(mode="after")
     def _regras(self):
         _slugs_unicos(self.tags, "tags")
-        if self.type == "tip":
-            if not self.tipTopic:
-                raise ValueError("dica exige tipTopic")
-        else:
-            if self.tipTopic:
-                raise ValueError("tipTopic só existe em dica")
-            if not self.subcategorySlug:
-                raise ValueError("técnica e matéria exigem subcategorySlug")
-            if not self.sources:
-                raise ValueError("técnica e matéria exigem sources")
+        if self.type in ("tecnica", "materia") and self.status == "published":
+            raise ValueError("técnica e matéria devem entrar como draft")
         if self.relatedTopics and len(self.relatedTopics) < 2:
             raise ValueError("relatedTopics: de 2 a 6 temas")
         return self
@@ -256,7 +254,7 @@ class ArtigoV1(_Estrito):
 # Esquemas exportados (teste de contrato, docs/06 §14)
 # --------------------------------------------------------------------------
 
-_ARQUIVOS = {"recipe.v1.schema.json": ReceitaV1, "article.v1.schema.json": ArtigoV1}
+_ARQUIVOS = {"recipe.v1.schema.json": ReceitaV1, "tip.v1.schema.json": ArtigoV1}
 _ORIGEM = "gerado pelo agente a partir de integration/contratos.py (NÃO é a cópia canônica do site)"
 
 

@@ -54,12 +54,13 @@ def montar_payload_dica(
 
     modelo_ia = "/".join(x for x in (modelo.get("provedor"), modelo.get("modelo")) if x)[:120] or "nao-informado"
     bruto = {
-        "type": "tip",
+        "type": pauta.get("tipo_conteudo", "dica"),
         "title": conteudo["titulo"],
         "slug": slugificar(conteudo["titulo"], 180),
         "excerpt": conteudo["descricao_curta"],
-        "subcategorySlug": pauta.get("subcategoria"),
         "tipTopic": pauta["assunto"],
+        "authorId": pauta.get("author_id"),
+        "authorSlug": pauta.get("author_slug"),
         "bodyMd": conteudo["corpo"],
         "structured": {"direct_answer": conteudo["resposta_direta"]},
         "sources": [
@@ -74,6 +75,8 @@ def montar_payload_dica(
         "relatedTopics": list(conteudo.get("temas_relacionados") or []),
         "cover": cover,
         "coverImageAlt": alt,
+        "metaTitle": conteudo.get("titulo_seo") or conteudo["titulo"],
+        "metaDescription": conteudo.get("descricao_seo") or conteudo["descricao_curta"],
         "status": status,
         "aiModel": modelo_ia,
         "generationMeta": {

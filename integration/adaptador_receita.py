@@ -83,12 +83,14 @@ def montar_payload_receita(
     colecoes: Sequence[str] = (),
     validators_version: str = "pendente",
 ) -> ReceitaV1:
-    if cover is None:
-        raise ContratoInvalido([{"campo": "cover", "detalhe": "sem capa (IMG-07: geração indisponível)"}])
+    if not cover:
+        raise ContratoInvalido([{"campo": "cover", "detalhe": "sem capa validada para a receita"}])
     if conteudo.get("subcategoria") != pauta.get("subcategoria"):
         raise ContratoInvalido([{"campo": "subcategorySlug", "detalhe": "a subcategoria vem da pauta e não pode mudar"}])
     if not pauta.get("topic_slug"):
         raise ContratoInvalido([{"campo": "generationMeta.topic_slug", "detalhe": "a pauta não tem topic_slug"}])
+    if not pauta.get("author_id") and not pauta.get("author_slug"):
+        raise ContratoInvalido([{"campo": "author", "detalhe": "a regra editorial não resolveu o autor da receita"}])
 
     # ---- ingredientes e catálogo (ALG-01: Fases 0 e 1 exigem vocabulário fechado)
     fora: list[str] = []
@@ -126,6 +128,8 @@ def montar_payload_receita(
         "excerpt": conteudo["descricao_curta"],
         "intro": conteudo.get("introducao"),
         "subcategorySlug": pauta["subcategoria"],
+        "authorId": pauta.get("author_id"),
+        "authorSlug": pauta.get("author_slug"),
         "prepTimeMin": conteudo["tempo_preparo_min"],
         "cookTimeMin": conteudo.get("tempo_cozimento_min"),
         "restTimeMin": conteudo.get("tempo_descanso_min"),
@@ -170,7 +174,7 @@ def montar_payload_receita_legada(
     conteudo: dict, *, pauta: dict, ficha: dict, cover: Optional[dict], status: str = "draft"
 ) -> ReceitaLegada:
     """Monta somente os campos conhecidos do POST /api/recipes legado."""
-    if cover is None or cover.get("mode") != "stock":
+    if cover is not None and cover.get("mode") != "stock":
         raise ContratoInvalido([{"campo": "coverImageUrl", "detalhe": "o contrato legado exige URL de capa existente"}])
     categoria = pauta.get("categoria_legada")
     if not categoria:
@@ -180,7 +184,6 @@ def montar_payload_receita_legada(
         "excerpt": conteudo["descricao_curta"],
         "category": categoria,
         "subcategorySlug": pauta.get("subcategoria"),
-        "coverImageUrl": cover.get("sourceImageUrl"),
         "coverImageAlt": conteudo["texto_alt_imagem"],
         "ingredients": [
             {
@@ -202,6 +205,8 @@ def montar_payload_receita_legada(
         ),
         "status": status,
     }
+    if cover is not None:
+        bruto["coverImageUrl"] = cover["sourceImageUrl"]
     try:
         return ReceitaLegada.model_validate(bruto)
     except ValidationError as exc:
