@@ -10,11 +10,11 @@ O ponto de entrada atual é `rodar_conteudo.py`. O fluxo usa `integration.conten
 
 O endpoint e o contrato de receitas utilizados por esse cliente ainda precisam ser comparados com a implementação do site durante a validação autorizada. Não considerar a publicação confirmada apenas porque o cliente e o workflow existem.
 
-## Dicas, técnicas e matérias
+## Dicas
 
-O fluxo de dicas é iniciado por `python -m pipeline.gerar_dica`. Ele utiliza `agente_receitas.integration.ClienteSite` e o modelo Pydantic `ArtigoV1`, com envio para `POST /api/articles`.
+O fluxo de dicas é iniciado por `python -m pipeline.gerar_dica`. O agente envia o payload do contrato do site para `POST /api/tips`, autenticado pelo Bearer `TIPS_AGENT_TOKEN` (ou pelo token compartilhado `RECIPES_AGENT_TOKEN`, quando configurado assim).
 
-A implementação do endpoint no repositório do site e sua disponibilidade em Preview/produção devem ser verificadas antes da ativação. O código do agente, isoladamente, não comprova que a rota esteja implantada ou que aceite o contrato esperado.
+Campos obrigatórios: `title`, `content`, `topicSlug` e `agentIdempotencyKey`. `topicSlug` precisa corresponder a um registro ativo em `tip_topics`; o agente não cria tópicos. A chave de idempotência é estável durante retries da mesma execução. A publicação pública requer `status=published`, `reviewStatus=approved` e `publishedAt` definido pelo backend.
 
 ## Autenticação e configuração
 
@@ -28,7 +28,7 @@ Na etapa de validação autorizada, confirmar:
 
 1. Assinaturas e formatos esperados por `integration.content` e `integration.site_client`.
 2. Campos obrigatórios e validações do payload de receitas.
-3. Campos obrigatórios de `ArtigoV1` e compatibilidade com `POST /api/articles`.
+3. Campos obrigatórios de dicas e compatibilidade com `POST /api/tips`.
 4. Autenticação, URL e seleção correta de Preview/produção.
 5. Resposta de sucesso da API e persistência/exibição pelo site.
 
