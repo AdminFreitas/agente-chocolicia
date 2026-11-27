@@ -1,16 +1,10 @@
 name: Gerar dica (Chocolícia)
 
-# Roda às terças e sextas, 09h em Brasília (12h UTC; Brasil em UTC-3, sem
-# horário de verão).
-#
-# Fica DESLIGADO até as variáveis do repositório AGENT_ENABLED e
-# AGENT_DICAS_ENABLED valerem "true".
-# Os tokens SITE_TOKEN_* devem ter o MESMO valor do RECIPES_AGENT_TOKEN configurado no
-# site (nunca CRON_SECRET). Endpoint: POST {SITE_BASE_URL}/api/articles.
+# Execução manual e controlada somente no Preview.
+# O agente envia dicas exclusivamente para POST /api/tips.
+# dry_run=true e publish=false são os padrões seguros; publicar exige seleção explícita.
 
 on:
-  schedule:
-    - cron: "0 12 * * 2,5"
   workflow_dispatch:
     inputs:
       assunto:
@@ -29,16 +23,20 @@ on:
         description: "Gera e valida, mas não envia ao site"
         type: boolean
         default: true
+      publish:
+        description: "Publica em vez de criar rascunho (somente quando autorizado)"
+        type: boolean
+        default: false
       target:
         description: "Ambiente de destino"
         type: choice
         options:
           - preview
-          - producao
         default: preview
 
 permissions:
   contents: read
+  id-token: write
 
 # Mesmo grupo das receitas: nunca há duas execuções do agente ao mesmo tempo.
 concurrency:
@@ -47,21 +45,25 @@ concurrency:
 
 jobs:
   dica:
-    if: ${{ vars.AGENT_ENABLED == 'true' && vars.AGENT_DICAS_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       # --- Execução ---
-      TARGET: ${{ inputs.target || 'preview' }}
-      DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+      TARGET: preview
+      DRY_RUN: ${{ inputs.dry_run == false && 'false' || 'true' }}
+      PUBLISH: ${{ inputs.publish && 'true' || 'false' }}
       ASSUNTO: ${{ inputs.assunto || 'automatico' }}
       CONTRACT_VERSION: "1"
+      AGENT_PHASE: "1"
 
       # --- Site (o agente só fala com o site por API) ---
       SITE_BASE_URL_PROD: ${{ vars.SITE_BASE_URL }}
-      SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
+      SITE_BASE_URL_PREVIEW: https://chocolicia-git-fix-neon-tips-335ad2-chocoliciaartedosdoces-9565.vercel.app
       SITE_TOKEN_DRAFT_PROD: ${{ secrets.SITE_TOKEN_DRAFT }}
       SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
+      SITE_TOKEN_PUBLISH_PROD: ${{ secrets.SITE_TOKEN_PUBLISH }}
+      SITE_TOKEN_PUBLISH_PREVIEW: ${{ secrets.SITE_TOKEN_PUBLISH_PREVIEW }}
 
       # --- Provedores de IA (somente os da lista de modelos aprovados) ---
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
@@ -76,6 +78,7 @@ jobs:
       # --- Imagens (bancos de imagens) ---
       PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      CHOCOLICIA_COVER_JSON: ${{ vars.CHOCOLICIA_COVER_JSON }}
 
     steps:
       - uses: actions/checkout@v4
@@ -93,10 +96,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Emitir identidade OIDC para Vercel
+        id: vercel-oidc
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput('token', token);
+
       - name: Gerar dica
         shell: bash
         run: |
           set -euo pipefail
+          export VERCEL_TRUSTED_OIDC_TOKEN="${{ steps.vercel-oidc.outputs.token }}"
 
           if [ "${TARGET}" = "preview" ]; then
             export SITE_BASE_URL="${SITE_BASE_URL_PREVIEW}"
@@ -111,23 +124,18 @@ jobs:
             exit 1
           fi
           if [ "${DRY_RUN}" != "true" ] && [ -z "${SITE_TOKEN_DRAFT}" ]; then
-            echo "::error::Token de rascunho ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de RECIPES_AGENT_TOKEN do site."
+            echo "::error::Token de rascunho ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de TIPS_AGENT_TOKEN (ou RECIPES_AGENT_TOKEN, quando compartilhado) do site."
             exit 1
           fi
-          if [ -z "${GEMINI_API_KEY}" ]; then
-            echo "::error::GEMINI_API_KEY está ausente; Gemini é o provedor primário aprovado para criação."
-            exit 1
-          fi
-
-          ARGS=(--dica --target "${TARGET}")
-          if [ "${ASSUNTO}" != "automatico" ]; then
-            ARGS+=(--assunto "${ASSUNTO}")
+          ARGS=(--assunto "${ASSUNTO}" --target "${TARGET}")
+          if [ "${PUBLISH}" = "true" ] && [ "${DRY_RUN}" != "true" ]; then
+            ARGS+=(--publish)
           fi
           if [ "${DRY_RUN}" = "true" ]; then
             ARGS+=(--dry-run)
           fi
 
-          python rodar_agente.py "${ARGS[@]}"
+          python -m pipeline.gerar_dica "${ARGS[@]}"
 
       - name: Resumo da execução
         if: always()

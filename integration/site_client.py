@@ -2,17 +2,17 @@
 
 Contrato da API existente na branch de integração do site (AdminFreitas/chocolicia):
 
-* ``POST /api/recipes``: Bearer igual ao ``RECIPES_AGENT_TOKEN`` do site; corpo
-  validado por ``recipeInputSchema`` (``shared/recipes.ts``). Exige ``category`` e
-  ``coverImageUrl`` (imagem já hospedada) e aceita ``status`` ``draft`` ou
-  ``published``. O site não aplica escopos por token nem usa ``Idempotency-Key``.
-* ``POST /api/articles`` (dicas): mesmo Bearer; corpo estrito (``articleInputSchema``),
-  aceita ``topicSlug``/``categorySlug``. Respostas: 400 validação, 401/403 token,
-  409 slug duplicado, 422 categoria/tópico inexistente, 503 token não configurado.
-* O site não usa o objeto ``cover`` do contrato v1 planejado em ``docs/06-INTEGRACAO.md``.
+* ``POST /api/recipes``: compatibilidade com Bearer ``RECIPES_AGENT_TOKEN`` e
+  schema legado ``recipeInputSchema``. Exige ``category`` e ``coverImageUrl``
+  já hospedada. A branch nova do site aplica bloqueio server-side para publicação e
+  reconhece uma ``Idempotency-Key`` SHA-256 opcional nesta rota de compatibilidade.
+* Dicas são enviadas exclusivamente pelo cliente dedicado em ``agente_receitas.integration.cliente_site`` para ``POST /api/tips``.
+* Este módulo envia somente receitas pela rota de compatibilidade. Ele não declara
+  suporte a idempotência; o cliente ``agente_receitas.integration.cliente_site`` é o
+  responsável pelo contrato v1 e por retries seguros.
 
-O payload local (``integration/content.py``) segue o contrato v1 e é salvo assim em
-``output/``; aqui ele é convertido para o formato que o site aceita antes do envio.
+O payload local é convertido para o schema legado somente para compatibilidade de
+receitas. Não use este módulo para publicar dicas.
 """
 
 from __future__ import annotations
@@ -68,17 +68,27 @@ def resolve_base_url() -> str:
 
 def resolve_endpoint(tipo: str) -> str:
     base = resolve_base_url()
-    if base.endswith("/api/recipes") or base.endswith("/api/articles"):
+    if base.endswith("/api/recipes"):
         return base
-    return f"{base}/api/recipes" if tipo == "receita" else f"{base}/api/articles"
+    if tipo != "receita":
+        raise SiteAPIError("Este cliente aceita somente receitas; use o pipeline dedicado para dicas.")
+    return f"{base}/api/recipes"
 
 
 def select_token(status: str) -> str:
     """Seleciona o Bearer do site; nunca usa CRON_SECRET."""
     if status == "published":
-        token = os.getenv("SITE_TOKEN_PUBLISH") or os.getenv("CHOCOLICIA_TOKEN_PUBLISH")
+        token = (
+            os.getenv("SITE_TOKEN_PUBLISH")
+            or os.getenv("CHOCOLICIA_TOKEN_PUBLISH")
+            or os.getenv("RECIPES_AGENT_TOKEN")
+        )
     else:
-        token = os.getenv("SITE_TOKEN_DRAFT") or os.getenv("CHOCOLICIA_TOKEN_DRAFT")
+        token = (
+            os.getenv("SITE_TOKEN_DRAFT")
+            or os.getenv("CHOCOLICIA_TOKEN_DRAFT")
+            or os.getenv("RECIPES_AGENT_TOKEN")
+        )
     if not token:
         raise SiteAPIError(
             "Token Bearer ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de "
@@ -127,7 +137,7 @@ def _http_message(status: int, body: str) -> str:
     if status == 403:
         return "A API do site recusou o token (HTTP 403). Confira se corresponde a RECIPES_AGENT_TOKEN."
     if status == 404:
-        return "A rota do site não foi encontrada (HTTP 404). Confirme se /api/articles está implantada no ambiente escolhido."
+        return "A rota do site não foi encontrada (HTTP 404). Confirme se /api/recipes está implantada no ambiente escolhido."
     if status == 409:
         return "Slug duplicado (HTTP 409). Confira o artigo existente antes de qualquer novo envio."
     if status == 422:
@@ -140,20 +150,27 @@ def _http_message(status: int, body: str) -> str:
 
 
 def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
-    """Envia uma vez. O site não garante Idempotency-Key; não repete POST ambíguo."""
+    """Envia uma vez pelo contrato legado de receitas, sem retry ou idempotência presumida."""
+    if tipo != "receita":
+        raise SiteAPIError(
+            "Este cliente aceita somente receitas. Dicas usam o cliente dedicado para /api/tips."
+        )
     endpoint = resolve_endpoint(tipo)
     status = payload.get("status", "draft")
     token = select_token(status)
-    body = to_site_recipe_payload(payload) if tipo == "receita" else payload
-    run_id = payload.get("generationMeta", {}).get("run_id", "")
-    idempotency_key = f"chocolicia-{tipo}-{topic_slug}-{run_id}"[:200]
+    body = to_site_recipe_payload(payload)
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
-        "Idempotency-Key": idempotency_key,
-        "X-Contract-Version": os.getenv("CONTRACT_VERSION", "1"),
+        # Este cliente converte payloads para o contrato legado. Não envie
+        # X-Contract-Version: 1, pois isso seleciona o endpoint v1 estrito.
         "X-Request-Id": str(uuid.uuid4()),
     }
+    # Token OIDC efêmero do GitHub Actions para Trusted Sources da Vercel.
+    # Não registrar este cabeçalho nem incluí-lo em mensagens de erro.
+    vercel_oidc = os.getenv("VERCEL_TRUSTED_OIDC_TOKEN", "").strip()
+    if vercel_oidc:
+        headers["x-vercel-trusted-oidc-idp-token"] = vercel_oidc
     try:
         response = httpx.post(endpoint, json=body, headers=headers, timeout=30)
     except httpx.TimeoutException as exc:

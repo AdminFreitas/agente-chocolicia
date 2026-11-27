@@ -15,6 +15,7 @@ import hashlib
 import base64
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -25,7 +26,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import ValidationError
 
-from agente_receitas.integration.contratos import CONTRACT_VERSION, ArtigoV1, ReceitaLegada, ReceitaV1
+from agente_receitas.integration.contratos import CONTRACT_VERSION, ReceitaLegada, ReceitaV1
 
 log = logging.getLogger(__name__)
 
@@ -112,9 +113,6 @@ class ConflitoDeSlug(ErroSite):  # 409 sem conteúdo da pauta no site: o slug é
     pass
 
 
-class EndpointBloqueado(ErroSite):
-    """O endpoint correspondente não foi confirmado como implantado."""
-
 
 # --------------------------------------------------------------------------
 # Resultado
@@ -127,7 +125,7 @@ class RespostaCriacao:
     # "duplicada" (a pauta já existe de OUTRA execução; nada foi reenviado) | "dry_run"
     situacao: str
     http_status: int = 0
-    id: Optional[int] = None
+    id: Optional[str] = None
     slug: Optional[str] = None
     status: Optional[str] = None
     url: Optional[str] = None
@@ -172,7 +170,6 @@ class ClienteSite:
         gerar_id: Callable[[], str] = lambda: uuid.uuid4().hex,
         allow_local_http: bool = False,
         allow_production: bool = False,
-        articles_enabled: bool = False,
         contract: str = "v1",
         upload_images: bool = False,
     ):
@@ -201,7 +198,6 @@ class ClienteSite:
         self.fase, self.contract_version, self.dry_run = fase, str(contract_version), dry_run
         self.contract = contract
         self.upload_images = upload_images
-        self.articles_enabled = articles_enabled
         self._espera, self._timeout, self._max, self._base_espera = espera, timeout, max(1, max_tentativas), base_espera
         self._gerar_id = gerar_id
         self._http = cliente or httpx.Client(timeout=timeout)
@@ -262,8 +258,12 @@ class ClienteSite:
         for tentativa in range(1, self._max + 1):
             rid = self._gerar_id()
             ids.append(rid)
-            cab = {"Authorization": f"Bearer {token}", "Accept": "application/json", "X-Request-Id": rid,
-                   }
+            cab = {"Authorization": f"Bearer {token}", "Accept": "application/json", "X-Request-Id": rid}
+            # Token OIDC efêmero emitido pelo GitHub Actions para Trusted Sources da Vercel.
+            # Nunca registrar nem persistir este cabeçalho.
+            vercel_oidc = os.getenv("VERCEL_TRUSTED_OIDC_TOKEN", "").strip()
+            if vercel_oidc:
+                cab["x-vercel-trusted-oidc-idp-token"] = vercel_oidc
             if self.contract != "legacy":
                 cab["X-Contract-Version"] = self.contract_version
             if corpo is not None:
@@ -408,16 +408,45 @@ class ClienteSite:
             ids, len(ids),
         )
 
-    def criar_artigo(self, payload: dict | ArtigoV1, *, run_id: str, reduzir: Optional[Callable[[dict], dict]] = None) -> RespostaCriacao:
-        if not self.articles_enabled:
-            raise EndpointBloqueado(
-                "publicação de dicas/artigos bloqueada: POST /api/articles não está implantado",
-                codigo="article_endpoint_not_deployed",
+    def criar_dica(self, payload: dict, *, run_id: str) -> RespostaCriacao:
+        """Envia somente dicas ao endpoint dedicado POST /api/tips."""
+        if not isinstance(payload, dict):
+            raise ContratoInvalido([{"campo": ".", "detalhe": "payload deve ser um objeto"}])
+        status = payload.get("status", "draft")
+        if status not in ("draft", "published"):
+            raise ContratoInvalido([{"campo": "status", "detalhe": "use draft ou published"}])
+        if status == "published" and self.fase < 1:
+            raise EscopoLocalInsuficiente("a Fase 0 não publica dicas")
+        if not payload.get("agentIdempotencyKey"):
+            raise ContratoInvalido([{"campo": "agentIdempotencyKey", "detalhe": "chave obrigatória"}])
+        # A API /api/tips usa um bearer token único para rascunhos e publicação.
+        token = self._tokens["draft"] or self._tokens["publish"]
+        if not token:
+            raise EscopoLocalInsuficiente("falta o token de integração do site (TIPS_AGENT_TOKEN)")
+        if self.dry_run:
+            return RespostaCriacao(
+                "dry_run", payload=payload,
+                cabecalhos={"Authorization": "Bearer ***", "alvo": "POST /api/tips"},
             )
-        tipo = payload.type if isinstance(payload, ArtigoV1) else (payload or {}).get("type")
-        if tipo not in ("technique", "tip", "feature"):
-            raise ContratoInvalido([{"campo": "type", "detalhe": "técnica, dica ou matéria"}])
-        return self._criar("/api/articles", tipo, ArtigoV1, payload, run_id, reduzir)
+        resp, ids = self._requisitar(
+            "POST", "/api/tips", token=token, corpo=payload,
+            chave=str(payload["agentIdempotencyKey"]),
+        )
+        self._levantar(resp, ids)
+        try:
+            dados = resp.json()
+        except Exception:
+            raise ErroSite("resposta de dica sem JSON válido", http_status=resp.status_code, request_id=ids[-1]) from None
+        dica = dados.get("tip", dados) if isinstance(dados, dict) else None
+        if not isinstance(dica, dict) or dica.get("id") is None or not dica.get("slug"):
+            raise ErroSite("API não confirmou a criação da dica", http_status=resp.status_code, request_id=ids[-1])
+        if dica.get("status") != status:
+            raise ErroSite(f"API não confirmou status {status}", http_status=resp.status_code, request_id=ids[-1])
+        replay = bool(dados.get("idempotent")) if isinstance(dados, dict) else False
+        return RespostaCriacao(
+            "repetido" if replay else "criado", resp.status_code,
+            str(dica["id"]), dica["slug"], dica["status"], None, ids, len(ids),
+        )
 
     def _criar_receita_legada(
         self, payload, *, idempotency_key: Optional[str], run_id: str

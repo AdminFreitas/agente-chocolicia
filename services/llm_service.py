@@ -13,6 +13,7 @@ from config.settings import (
     GEMINI_API_KEY,
     GROQ_API_KEY,
     OPENROUTER_API_KEY,
+    FALLBACK_ORDER,
 )
 
 
@@ -79,7 +80,25 @@ def _modelos_aprovados(tarefa: str) -> list[dict]:
     return config.get(tarefa, [])
 
 
+def _ordenar_modelos_por_fallback(modelos: list[dict]) -> list[dict]:
+    """Ordena somente modelos aprovados, respeitando a preferência global."""
+    ordem = [item.strip().lower() for item in FALLBACK_ORDER.split(",") if item.strip()]
+    prioridade = {provedor: indice for indice, provedor in enumerate(ordem)}
+    return [
+        item
+        for _, item in sorted(
+            enumerate(modelos),
+            key=lambda par: (
+                prioridade.get(str(par[1].get("provedor", "")).strip().lower(), len(prioridade)),
+                par[0],
+            ),
+        )
+    ]
+
+
 def _chave_provedor(provedor: str) -> str | None:
+    if provedor == "ollama":
+        return "local"  # Ollama não exige chave de API; disponibilidade é validada na chamada.
     return {
         "gemini": GEMINI_API_KEY,
         "groq": GROQ_API_KEY,
@@ -95,20 +114,29 @@ def _modelo_resolvido(item: dict) -> str:
         "gemini": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
         "groq": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
         "openrouter": os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct"),
+        "ollama": os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
     }
     return padrao.get(item["provedor"], "")
 
 
-def _chamar_gemini(prompt: str, modelo: str) -> str:
+def _novo_cliente_gemini():
     from google import genai
 
-    resposta = genai.Client(api_key=GEMINI_API_KEY).models.generate_content(
-        model=modelo,
-        contents=prompt,
-    )
-    if not getattr(resposta, "text", None):
-        raise RuntimeError("Resposta vazia do Gemini")
-    return resposta.text
+    return genai.Client(api_key=GEMINI_API_KEY)
+
+
+def _chamar_gemini(prompt: str, modelo: str) -> str:
+    # Mantém uma referência forte ao cliente durante toda a chamada.
+    # O context manager fecha o transporte ao concluir, inclusive em exceções.
+    # Um cliente novo por requisição evita compartilhar clientes entre execuções.
+    with _novo_cliente_gemini() as cliente:
+        resposta = cliente.models.generate_content(
+            model=modelo,
+            contents=prompt,
+        )
+        if not getattr(resposta, "text", None):
+            raise RuntimeError("Resposta vazia do Gemini")
+        return resposta.text
 
 
 def _chamar_openai_compativel(prompt: str, modelo: str, provedor: str) -> str:
@@ -130,6 +158,9 @@ def _chamar_provedor(item: dict, prompt: str) -> str:
     modelo = _modelo_resolvido(item)
     if not modelo:
         raise ModeloNaoAprovado(f"Modelo aprovado sem identificador para {provedor}")
+    if provedor == "ollama":
+        from integration.ollama_provider import gerar_texto as gerar_ollama
+        return gerar_ollama(prompt, modelo)
     if provedor == "gemini":
         return _chamar_gemini(prompt, modelo)
     if provedor in {"groq", "openrouter"}:
@@ -173,7 +204,7 @@ def _erro_transitorio(exc: Exception) -> bool:
 def _gerar_texto_com_metadados(
     tarefa: str, prompt: str, tentativas_por_provedor: int = 2
 ) -> dict:
-    modelos = _modelos_aprovados(tarefa)
+    modelos = _ordenar_modelos_por_fallback(_modelos_aprovados(tarefa))
     if not modelos:
         raise ModeloNaoAprovado(f"Nenhum modelo aprovado para a tarefa '{tarefa}'")
 
@@ -183,9 +214,6 @@ def _gerar_texto_com_metadados(
         provedor = str(item.get("provedor", "")).lower()
         chave = _chave_provedor(provedor)
         if not chave:
-            mensagem = f"Chave ausente para o provedor aprovado '{provedor}'."
-            if indice == 0:
-                raise ModeloNaoAprovado(mensagem)
             erros.append(f"{provedor}: chave ausente")
             continue
 
@@ -212,11 +240,13 @@ def _gerar_texto_com_metadados(
             except Exception as exc:
                 if _erro_configuracao(exc):
                     code = _codigo_http(exc)
-                    raise ModeloNaoAprovado(
-                        f"Erro de autenticação/configuração no provedor primário '{provedor}'"
-                        + (f" (HTTP {code})" if code else "")
-                        + "; fallback interrompido."
-                    ) from exc
+                    erros.append(
+                        f"{provedor}: erro de autenticação/configuração"
+                        + (f" HTTP {code}" if code else "")
+                    )
+                    # Credencial ou modelo inválido neste provedor não deve
+                    # impedir a tentativa do próximo provedor aprovado.
+                    break
                 if not _erro_transitorio(exc):
                     raise RuntimeError(
                         f"Erro não classificado como transitório no provedor '{provedor}' "
@@ -228,7 +258,7 @@ def _gerar_texto_com_metadados(
                 )
 
     raise RuntimeError(
-        "Todos os provedores aprovados configurados falharam temporariamente: "
+        "Nenhum provedor aprovado conseguiu gerar a resposta: "
         + "; ".join(erros)
     )
 
@@ -251,9 +281,9 @@ def gerar_texto_com_metadados(
     return _gerar_texto_com_metadados(tarefa, prompt, tentativas_por_provedor)
 
 
-def gerar_artigo(tema: str, categoria: str = "Tecnologia", tentativas_por_provedor: int = 2) -> dict:
-    prompt = f"""Voce e um escritor especializado em Chocolicia.
-Escreva um artigo em portugues sobre: "{tema}"
+def gerar_artigo(tema: str, categoria: str = "Culinária", tentativas_por_provedor: int = 2) -> dict:
+    prompt = f"""Você é um redator culinário especializado em Chocolícia.
+Escreva um conteúdo culinário em português do Brasil sobre: "{tema}"
 Categoria: {categoria}
 Responda com:
 TITULO: ...

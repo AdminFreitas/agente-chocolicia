@@ -38,13 +38,14 @@ def build_runtime(*, dry_run: bool = True, target: str = "preview") -> Runtime:
             raise ConfigurationError("production exige DRY_RUN=false; use preview para dry-run")
         if os.environ.get("AGENT_PUBLISHING_ENABLED", "false").strip().lower() != "true":
             raise ConfigurationError("AGENT_PUBLISHING_ENABLED não está habilitado")
-        if settings.site_contract != "legacy":
-            raise ConfigurationError(
-                "produção só é liberada no modo legacy explícito (SITE_CONTRACT=legacy): "
-                "o contrato v1 depende de rotas que o site ainda não implantou"
-            )
-        if not settings.recipes_agent_token:
-            raise ConfigurationError("RECIPES_AGENT_TOKEN ausente para publicar em produção")
+        if settings.site_contract == "legacy":
+            if not settings.recipes_agent_token:
+                raise ConfigurationError("RECIPES_AGENT_TOKEN ausente para publicar em produção")
+        else:
+            if not settings.site_token_draft:
+                raise ConfigurationError("SITE_TOKEN_DRAFT ausente para o contrato v1")
+            if not settings.site_token_publish:
+                raise ConfigurationError("SITE_TOKEN_PUBLISH ausente para publicar pelo contrato v1")
     elif settings.environment == "production":
         raise ConfigurationError("AGENT_ENV=production exige target=production")
     if settings.search_provider not in {"brave", "tavily"}:

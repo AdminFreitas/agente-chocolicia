@@ -112,19 +112,6 @@ class SiteCatalog:
     def coverage(self):
         return self._get("/api/coverage")
 
-    def tip_topics(self):
-        data = self._get("/api/articles/topics", auth_required=False)
-        items = data.get("items") if isinstance(data, dict) else data
-        if not isinstance(items, list):
-            raise RuntimeError("resposta de /api/articles/topics fora do formato esperado")
-        return items
-
-    def tip_coverage(self):
-        data = self._get("/api/articles/coverage")
-        if not isinstance(data, dict) or not isinstance(data.get("publishedTipsThisWeek"), int):
-            raise RuntimeError("resposta de /api/articles/coverage fora do formato esperado")
-        return data["publishedTipsThisWeek"]
-
     def lookup_content(self, slug: str):
         from urllib.parse import quote
         return self._get(

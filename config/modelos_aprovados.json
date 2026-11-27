@@ -1,20 +1,94 @@
 {
   "criacao": [
-    {"provedor": "gemini", "modelo": "", "familia": ""}
+    {
+      "provedor": "groq",
+      "modelo": "openai/gpt-oss-120b",
+      "familia": "openai-gpt-oss"
+    },
+    {
+      "provedor": "gemini",
+      "modelo": "gemini-3.8-flash",
+      "familia": "google-gemini"
+    },
+    {
+      "provedor": "openrouter",
+      "modelo": "meta-llama/llama-3.3-70b-instruct",
+      "familia": "meta-llama-3.3"
+    }
   ],
   "reparo": [
-    {"provedor": "gemini", "modelo": "", "familia": ""}
+    {
+      "provedor": "groq",
+      "modelo": "openai/gpt-oss-120b",
+      "familia": "openai-gpt-oss"
+    },
+    {
+      "provedor": "gemini",
+      "modelo": "gemini-3.8-flash",
+      "familia": "google-gemini"
+    },
+    {
+      "provedor": "openrouter",
+      "modelo": "meta-llama/llama-3.3-70b-instruct",
+      "familia": "meta-llama-3.3"
+    }
   ],
   "revisao": [
-    {"provedor": "groq", "modelo": "", "familia": ""}
+    {
+      "provedor": "groq",
+      "modelo": "openai/gpt-oss-120b",
+      "familia": "openai-gpt-oss"
+    },
+    {
+      "provedor": "gemini",
+      "modelo": "gemini-3.8-flash",
+      "familia": "google-gemini"
+    },
+    {
+      "provedor": "openrouter",
+      "modelo": "meta-llama/llama-3.3-70b-instruct",
+      "familia": "meta-llama-3.3"
+    }
   ],
   "extracao": [
-    {"provedor": "gemini", "modelo": "", "familia": ""}
+    {
+      "provedor": "groq",
+      "modelo": "openai/gpt-oss-120b",
+      "familia": "openai-gpt-oss"
+    },
+    {
+      "provedor": "gemini",
+      "modelo": "gemini-3.8-flash",
+      "familia": "google-gemini"
+    },
+    {
+      "provedor": "openrouter",
+      "modelo": "meta-llama/llama-3.3-70b-instruct",
+      "familia": "meta-llama-3.3"
+    }
   ],
   "seo": [
-    {"provedor": "openrouter", "modelo": "", "familia": ""}
+    {
+      "provedor": "groq",
+      "modelo": "openai/gpt-oss-120b",
+      "familia": "openai-gpt-oss"
+    },
+    {
+      "provedor": "gemini",
+      "modelo": "gemini-3.8-flash",
+      "familia": "google-gemini"
+    },
+    {
+      "provedor": "openrouter",
+      "modelo": "meta-llama/llama-3.3-70b-instruct",
+      "familia": "meta-llama-3.3"
+    }
   ],
   "visao": [
-    {"provedor": "gemini", "modelo": "", "familia": ""}
+    {
+      "provedor": "gemini",
+      "modelo": "",
+      "familia": ""
+    }
   ]
 }

@@ -1,7 +1,7 @@
 """
 integration/contratos.py — Modelos Pydantic do contrato v1 agente -> site.
 
-Base: docs/06-INTEGRACAO.md §6 (receita), §7 (imagens), §8 (artigos) e §14
+Base: contrato de receitas e imagens do site; as dicas usam o contrato físico de /api/tips.
 (versionamento); docs/04 §9.1 (unidades) e §6.2 (etiquetas de dieta habilitadas).
 O site é o dono do contrato (docs/01 D-11): este módulo é a CÓPIA do agente.
 
@@ -208,58 +208,10 @@ class ReceitaLegada(_Estrito):
 
 
 # --------------------------------------------------------------------------
-# Artigo (docs/06 §8). O adaptador de artigos é da Etapa 5; o modelo já existe aqui.
-# --------------------------------------------------------------------------
-
-
-class FonteArtigoV1(_Estrito):
-    name: str = Field(min_length=1, max_length=200)
-    title: str = Field(min_length=1, max_length=300)
-    url: str = Field(min_length=1, max_length=2048)
-
-
-class ArtigoV1(_Estrito):
-    type: Literal["technique", "tip", "feature"]
-    title: str = Field(min_length=5, max_length=180)
-    slug: Optional[str] = Field(default=None, min_length=3, max_length=180, pattern=SLUG_RE)
-    excerpt: str = Field(min_length=20, max_length=160)
-    subcategorySlug: Optional[str] = Field(default=None, min_length=1, max_length=120, pattern=SLUG_RE)
-    tipTopic: Optional[str] = Field(default=None, min_length=1, max_length=60, pattern=SLUG_RE)
-    bodyMd: str = Field(min_length=1)  # limites por tipo: docs/04 §10 (validators)
-    structured: Optional[dict] = None
-    sources: list[FonteArtigoV1] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list, max_length=12)
-    relatedTopics: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(default_factory=list, max_length=6)
-    cover: Cover
-    coverImageUrl: Optional[AnyHttpUrl] = None
-    coverImageAlt: str = Field(min_length=8, max_length=240)
-    status: Literal["draft", "published"] = "draft"
-    aiModel: str = Field(min_length=1, max_length=120)
-    generationMeta: GenerationMetaV1
-
-    @model_validator(mode="after")
-    def _regras(self):
-        _slugs_unicos(self.tags, "tags")
-        if self.type == "tip":
-            if not self.tipTopic:
-                raise ValueError("dica exige tipTopic")
-        else:
-            if self.tipTopic:
-                raise ValueError("tipTopic só existe em dica")
-            if not self.subcategorySlug:
-                raise ValueError("técnica e matéria exigem subcategorySlug")
-            if not self.sources:
-                raise ValueError("técnica e matéria exigem sources")
-        if self.relatedTopics and len(self.relatedTopics) < 2:
-            raise ValueError("relatedTopics: de 2 a 6 temas")
-        return self
-
-
-# --------------------------------------------------------------------------
 # Esquemas exportados (teste de contrato, docs/06 §14)
 # --------------------------------------------------------------------------
 
-_ARQUIVOS = {"recipe.v1.schema.json": ReceitaV1, "article.v1.schema.json": ArtigoV1}
+_ARQUIVOS = {"recipe.v1.schema.json": ReceitaV1}
 _ORIGEM = "gerado pelo agente a partir de integration/contratos.py (NÃO é a cópia canônica do site)"
 
 

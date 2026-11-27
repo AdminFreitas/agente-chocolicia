@@ -37,6 +37,7 @@ jobs:
       AGENT_ENABLED: "true"
       AGENT_ENV: production
       AGENT_PHASE: "1"
+      FALLBACK_ORDER: ${{ vars.FALLBACK_ORDER }}
       AGENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       TARGET: production
       DRY_RUN: "false"

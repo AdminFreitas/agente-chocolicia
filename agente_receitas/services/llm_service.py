@@ -12,6 +12,7 @@ from agente_receitas.config.settings import (
     GEMINI_API_KEY,
     GROQ_API_KEY,
     OPENROUTER_API_KEY,
+    FALLBACK_ORDER,
 )
 
 
@@ -81,6 +82,22 @@ def _modelos_aprovados(tarefa: str) -> list[dict]:
     return modelos
 
 
+def _ordenar_modelos_por_fallback(modelos: list[dict]) -> list[dict]:
+    """Ordena somente modelos já aprovados para a tarefa, sem habilitar provedores novos."""
+    ordem = [item.strip().lower() for item in FALLBACK_ORDER.split(",") if item.strip()]
+    prioridade = {provedor: indice for indice, provedor in enumerate(ordem)}
+    return [
+        item
+        for _, item in sorted(
+            enumerate(modelos),
+            key=lambda par: (
+                prioridade.get(str(par[1].get("provedor", "")).strip().lower(), len(prioridade)),
+                par[0],
+            ),
+        )
+    ]
+
+
 def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list[dict]:
     modelos = _modelos_aprovados(tarefa)
     if not modelos:
@@ -105,7 +122,7 @@ def _modelos_elegiveis(tarefa: str, familia_excluida: str | None = None) -> list
         raise ModeloNaoAprovado(
             f"Nenhum modelo aprovado de família diferente para a tarefa '{tarefa}'"
         )
-    return elegiveis
+    return _ordenar_modelos_por_fallback(elegiveis)
 
 
 def validar_configuracao_modelos(tarefas: list[str]) -> None:
@@ -132,6 +149,8 @@ def validar_configuracao_modelos(tarefas: list[str]) -> None:
 
 
 def _chave_provedor(provedor: str) -> str | None:
+    if provedor == "ollama":
+        return "local"  # Ollama não exige chave de API; disponibilidade é validada na chamada.
     return {
         "gemini": GEMINI_API_KEY,
         "groq": GROQ_API_KEY,
@@ -143,16 +162,25 @@ def _modelo_resolvido(item: dict) -> str:
     return item.get("modelo", "").strip()
 
 
-def _chamar_gemini(prompt: str, modelo: str) -> str:
+def _novo_cliente_gemini():
     from google import genai
 
-    resposta = genai.Client(api_key=GEMINI_API_KEY).models.generate_content(
-        model=modelo,
-        contents=prompt,
-    )
-    if not getattr(resposta, "text", None):
-        raise RuntimeError("Resposta vazia do Gemini")
-    return resposta.text
+    return genai.Client(api_key=GEMINI_API_KEY)
+
+
+def _chamar_gemini(prompt: str, modelo: str) -> str:
+    # google-genai cria um transporte HTTP no cliente. O cliente precisa manter
+    # uma referência forte durante toda a requisição; usar Client(...) inline
+    # permite que o SDK feche o transporte antes de generate_content terminar
+    # (googleapis/python-genai#1763). O contexto limita o cliente a esta chamada.
+    with _novo_cliente_gemini() as cliente:
+        resposta = cliente.models.generate_content(
+            model=modelo,
+            contents=prompt,
+        )
+        if not getattr(resposta, "text", None):
+            raise RuntimeError("Resposta vazia do Gemini")
+        return resposta.text
 
 
 def _chamar_openai_compativel(prompt: str, modelo: str, provedor: str) -> str:
@@ -174,6 +202,9 @@ def _chamar_provedor(item: dict, prompt: str) -> str:
     modelo = _modelo_resolvido(item)
     if not modelo:
         raise ModeloNaoAprovado(f"Modelo aprovado sem identificador para {provedor}")
+    if provedor == "ollama":
+        from integration.ollama_provider import gerar_texto as gerar_ollama
+        return gerar_ollama(prompt, modelo)
     if provedor == "gemini":
         return _chamar_gemini(prompt, modelo)
     if provedor in {"groq", "openrouter"}:
