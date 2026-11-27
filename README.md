@@ -1,12 +1,12 @@
 # agente-chocolicia
 
-Agente Python responsável por pesquisar, gerar, validar e publicar automaticamente receitas e conteúdos culinários da Chocolícia.
+Agente Python responsável por pesquisar, gerar, validar e publicar automaticamente receitas e dicas culinárias da Chocolícia.
 
 **Documento de decisão obrigatório:** [Decisões canônicas do projeto Chocolícia](docs/DECISOES-CANONICAS-CHOCOLICIA.md). Em caso de conflito, ele prevalece sobre documentação histórica.
 
 ## Responsabilidades
 
-- O agente é responsável por gerar receitas, dicas, técnicas e matérias culinárias.
+- O agente é responsável por gerar receitas e dicas culinárias.
 - O agente executa validações de qualidade culinária, estrutura, SEO e contrato.
 - A publicação ocorre pela API oficial da Chocolícia.
 - O site recebe, armazena e apresenta o conteúdo; não gera conteúdo em paralelo.
