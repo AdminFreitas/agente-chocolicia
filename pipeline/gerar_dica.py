@@ -157,7 +157,7 @@ def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_
         token_draft = os.getenv("SITE_TOKEN_DRAFT_PROD" if target == "producao" else "SITE_TOKEN_DRAFT_PREVIEW", "").strip()
     if not base_url:
         raise DicaInvalida("URL do ambiente Chocolícia não configurada.")
-    token_escolhido = token_publish if publish else token_draft
+    token_escolhido = (token_publish or token_draft) if publish else token_draft
     if not token_escolhido:
         tipo_token = "publicação" if publish else "rascunho"
         raise DicaInvalida(f"Configure o token de {tipo_token} do ambiente escolhido.")
