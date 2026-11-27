@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      SITE_PREVIEW_URL: ${{ vars.SITE_BASE_URL_PREVIEW }}
+      SITE_PREVIEW_URL: https://chocolicia-git-fix-neon-tips-335ad2-chocoliciaartedosdoces-9565.vercel.app
     steps:
       - name: Emitir identidade OIDC do GitHub Actions
         id: oidc
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${SITE_PREVIEW_URL}" ]; then
-            echo "::error::Configure a variável SITE_BASE_URL_PREVIEW do GitHub Actions."
+            echo "::error::A URL Preview da branch do site não foi definida no workflow."
             exit 1
           fi
           for endpoint in "/api/tips?limit=1" "/api/recipes?limit=1"; do
