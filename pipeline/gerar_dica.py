@@ -170,7 +170,6 @@ def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_
         contract_version=os.getenv("CONTRACT_VERSION", "1"),
         dry_run=False,
         allow_production=(target == "producao"),
-        articles_enabled=False,
         contract="v1",
     )
     resposta_site = cliente.criar_dica(payload, run_id=run_id)
