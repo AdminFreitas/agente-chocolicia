@@ -153,7 +153,7 @@ def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
     """Envia uma vez pelo contrato legado de receitas, sem retry ou idempotência presumida."""
     if tipo != "receita":
         raise SiteAPIError(
-            "A integração legada só envia receitas. Dicas usam o cliente dedicado para /api/tips."
+            "Este cliente aceita somente receitas. Dicas usam o cliente dedicado para /api/tips."
         )
     endpoint = resolve_endpoint(tipo)
     status = payload.get("status", "draft")
