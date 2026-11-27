@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-O agente Python pesquisa, gera, valida e publica automaticamente receitas e conteúdos culinários. O site Chocolícia recebe o conteúdo pela API, persiste os dados e apresenta as páginas ao público.
+O agente Python pesquisa, gera, valida e publica automaticamente receitas e dicas culinárias. O site Chocolícia recebe o conteúdo pela API, persiste os dados e apresenta as páginas ao público.
 
 As decisões editoriais e operacionais oficiais estão em [docs/DECISOES-CANONICAS-CHOCOLICIA.md](docs/DECISOES-CANONICAS-CHOCOLICIA.md).
 
@@ -10,7 +10,7 @@ As decisões editoriais e operacionais oficiais estão em [docs/DECISOES-CANONIC
 
 **Agente Python**
 - Pesquisa e seleção de referências culinárias.
-- Geração de receitas, dicas, técnicas e matérias.
+- Geração de receitas e dicas.
 - Validação de coerência culinária, estrutura, originalidade, SEO e contrato.
 - Publicação pela API do site.
 
@@ -31,9 +31,7 @@ A compatibilidade integral do payload e do endpoint de receitas com o site ainda
 
 ### Dicas
 
-O ponto de entrada atual é `python -m pipeline.gerar_dica`. Ele utiliza o serviço compartilhado de IA e os contratos `ArtigoV1` / `ClienteSite` do pacote `agente_receitas.integration`, com publicação pelo endpoint `POST /api/articles`.
-
-A disponibilidade desse endpoint no ambiente de destino e a aceitação do contrato precisam ser confirmadas antes de considerar o fluxo operacional.
+O ponto de entrada é `python -m pipeline.gerar_dica`. O agente gera, valida e envia o payload do contrato físico de dicas para `POST /api/tips`. O endpoint exige `topicSlug` ativo e `agentIdempotencyKey`; não há integração com artigos.
 
 ## Provedores de IA
 
