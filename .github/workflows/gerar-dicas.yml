@@ -1,12 +1,8 @@
 name: Gerar dica (Chocolícia)
 
-# Roda às terças e sextas, 09h em Brasília (12h UTC; Brasil em UTC-3, sem
-# horário de verão).
-#
-# Fica DESLIGADO até as variáveis do repositório AGENT_ENABLED e
-# AGENT_DICAS_ENABLED valerem "true".
-# O agente Python envia dicas exclusivamente pela API do site (/api/tips).
-# A publicação automática usa SITE_TOKEN_PUBLISH do ambiente selecionado.
+# Execução manual e controlada somente no Preview.
+# O agente envia dicas exclusivamente para POST /api/tips.
+# dry_run=true e publish=false são os padrões seguros; publicar exige seleção explícita.
 
 on:
   workflow_dispatch:
@@ -49,7 +45,7 @@ concurrency:
 
 jobs:
   dica:
-    if: ${{ github.event_name == 'workflow_dispatch' && vars.AGENT_ENABLED == 'true' && vars.AGENT_DICAS_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -59,11 +55,11 @@ jobs:
       PUBLISH: ${{ inputs.publish && 'true' || 'false' }}
       ASSUNTO: ${{ inputs.assunto || 'automatico' }}
       CONTRACT_VERSION: "1"
-      AGENT_PHASE: ${{ vars.AGENT_PHASE || '0' }}
+      AGENT_PHASE: "1"
 
       # --- Site (o agente só fala com o site por API) ---
       SITE_BASE_URL_PROD: ${{ vars.SITE_BASE_URL }}
-      SITE_BASE_URL_PREVIEW: ${{ vars.SITE_BASE_URL_PREVIEW }}
+      SITE_BASE_URL_PREVIEW: https://chocolicia-git-fix-neon-tips-335ad2-chocoliciaartedosdoces-9565.vercel.app
       SITE_TOKEN_DRAFT_PROD: ${{ secrets.SITE_TOKEN_DRAFT }}
       SITE_TOKEN_DRAFT_PREVIEW: ${{ secrets.SITE_TOKEN_DRAFT_PREVIEW }}
       SITE_TOKEN_PUBLISH_PROD: ${{ secrets.SITE_TOKEN_PUBLISH }}
