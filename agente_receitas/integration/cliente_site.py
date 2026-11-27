@@ -26,7 +26,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import ValidationError
 
-from agente_receitas.integration.contratos import CONTRACT_VERSION, ArtigoV1, ReceitaLegada, ReceitaV1
+from agente_receitas.integration.contratos import CONTRACT_VERSION, ReceitaLegada, ReceitaV1
 
 log = logging.getLogger(__name__)
 
@@ -113,9 +113,6 @@ class ConflitoDeSlug(ErroSite):  # 409 sem conteúdo da pauta no site: o slug é
     pass
 
 
-class EndpointBloqueado(ErroSite):
-    """O endpoint correspondente não foi confirmado como implantado."""
-
 
 # --------------------------------------------------------------------------
 # Resultado
@@ -173,7 +170,6 @@ class ClienteSite:
         gerar_id: Callable[[], str] = lambda: uuid.uuid4().hex,
         allow_local_http: bool = False,
         allow_production: bool = False,
-        articles_enabled: bool = False,
         contract: str = "v1",
         upload_images: bool = False,
     ):
@@ -202,7 +198,6 @@ class ClienteSite:
         self.fase, self.contract_version, self.dry_run = fase, str(contract_version), dry_run
         self.contract = contract
         self.upload_images = upload_images
-        self.articles_enabled = articles_enabled
         self._espera, self._timeout, self._max, self._base_espera = espera, timeout, max(1, max_tentativas), base_espera
         self._gerar_id = gerar_id
         self._http = cliente or httpx.Client(timeout=timeout)
@@ -452,17 +447,6 @@ class ClienteSite:
             "repetido" if replay else "criado", resp.status_code,
             str(dica["id"]), dica["slug"], dica["status"], None, ids, len(ids),
         )
-
-    def criar_artigo(self, payload: dict | ArtigoV1, *, run_id: str, reduzir: Optional[Callable[[dict], dict]] = None) -> RespostaCriacao:
-        if not self.articles_enabled:
-            raise EndpointBloqueado(
-                "publicação de dicas/artigos bloqueada: POST /api/articles não está implantado",
-                codigo="article_endpoint_not_deployed",
-            )
-        tipo = payload.type if isinstance(payload, ArtigoV1) else (payload or {}).get("type")
-        if tipo not in ("article", "tip", "technique"):
-            raise ContratoInvalido([{"campo": "type", "detalhe": "técnica, dica ou matéria"}])
-        return self._criar("/api/articles", tipo, ArtigoV1, payload, run_id, reduzir)
 
     def _criar_receita_legada(
         self, payload, *, idempotency_key: Optional[str], run_id: str
