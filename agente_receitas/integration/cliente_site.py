@@ -413,6 +413,46 @@ class ClienteSite:
             ids, len(ids),
         )
 
+    def criar_dica(self, payload: dict, *, run_id: str) -> RespostaCriacao:
+        """Envia somente dicas ao endpoint dedicado POST /api/tips."""
+        if not isinstance(payload, dict):
+            raise ContratoInvalido([{"campo": ".", "detalhe": "payload deve ser um objeto"}])
+        status = payload.get("status", "draft")
+        if status not in ("draft", "published"):
+            raise ContratoInvalido([{"campo": "status", "detalhe": "use draft ou published"}])
+        if status == "published" and self.fase < 1:
+            raise EscopoLocalInsuficiente("a Fase 0 não publica dicas")
+        if not payload.get("agentIdempotencyKey"):
+            raise ContratoInvalido([{"campo": "agentIdempotencyKey", "detalhe": "chave obrigatória"}])
+        # A API /api/tips usa um bearer token único para rascunhos e publicação.
+        token = self._tokens["draft"] or self._tokens["publish"]
+        if not token:
+            raise EscopoLocalInsuficiente("falta o token de integração do site (TIPS_AGENT_TOKEN)")
+        if self.dry_run:
+            return RespostaCriacao(
+                "dry_run", payload=payload,
+                cabecalhos={"Authorization": "Bearer ***", "alvo": "POST /api/tips"},
+            )
+        resp, ids = self._requisitar(
+            "POST", "/api/tips", token=token, corpo=payload,
+            chave=str(payload["agentIdempotencyKey"]),
+        )
+        self._levantar(resp, ids)
+        try:
+            dados = resp.json()
+        except Exception:
+            raise ErroSite("resposta de dica sem JSON válido", http_status=resp.status_code, request_id=ids[-1]) from None
+        dica = dados.get("tip", dados) if isinstance(dados, dict) else None
+        if not isinstance(dica, dict) or dica.get("id") is None or not dica.get("slug"):
+            raise ErroSite("API não confirmou a criação da dica", http_status=resp.status_code, request_id=ids[-1])
+        if dica.get("status") != status:
+            raise ErroSite(f"API não confirmou status {status}", http_status=resp.status_code, request_id=ids[-1])
+        replay = bool(dados.get("idempotent")) if isinstance(dados, dict) else False
+        return RespostaCriacao(
+            "repetido" if replay else "criado", resp.status_code,
+            str(dica["id"]), dica["slug"], dica["status"], None, ids, len(ids),
+        )
+
     def criar_artigo(self, payload: dict | ArtigoV1, *, run_id: str, reduzir: Optional[Callable[[dict], dict]] = None) -> RespostaCriacao:
         if not self.articles_enabled:
             raise EndpointBloqueado(
