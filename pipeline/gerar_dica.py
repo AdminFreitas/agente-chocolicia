@@ -133,7 +133,7 @@ def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_
     angulo = random.choice(TOPICOS[topico][1])
     resposta = llm_service.gerar_texto_com_metadados("criacao", montar_prompt(topico, angulo))
     dados = llm_service.parsear_resposta_padrao(resposta["texto"])
-    run_id = str(uuid4())
+    run_id = os.getenv("GITHUB_RUN_ID", "").strip() or str(uuid4())
     phase = int(os.getenv("AGENT_PHASE", "0"))
     status = "published" if publish else "draft"
     payload = montar_payload(dados, topico, resposta, status, run_id)
