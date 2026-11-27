@@ -31,7 +31,7 @@ A compatibilidade integral do payload e do endpoint de receitas com o site ainda
 
 ### Dicas
 
-O ponto de entrada é `python -m pipeline.gerar_dica`. O agente gera, valida e envia o payload do contrato físico de dicas para `POST /api/tips`. O endpoint exige `topicSlug` ativo e `agentIdempotencyKey`; não há integração com artigos.
+O ponto de entrada é `python -m pipeline.gerar_dica`. O agente gera, valida e envia o payload do contrato físico de dicas para `POST /api/tips`. O endpoint exige `topicSlug` ativo e `agentIdempotencyKey`.
 
 ## Provedores de IA
 
