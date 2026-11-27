@@ -6,15 +6,13 @@ Contrato da API existente na branch de integração do site (AdminFreitas/chocol
   schema legado ``recipeInputSchema``. Exige ``category`` e ``coverImageUrl``
   já hospedada. A branch nova do site aplica bloqueio server-side para publicação e
   reconhece uma ``Idempotency-Key`` SHA-256 opcional nesta rota de compatibilidade.
-* ``POST /api/articles`` exige o contrato v1 e não é atendido por este cliente legado.
-  O fluxo antigo de dicas é bloqueado aqui até ser migrado para o cliente V1, que valida
-  fontes, metadados, escopo e a chave idempotente SHA-256.
+* Dicas são enviadas exclusivamente pelo cliente dedicado em ``agente_receitas.integration.cliente_site`` para ``POST /api/tips``.
 * Este módulo envia somente receitas pela rota de compatibilidade. Ele não declara
   suporte a idempotência; o cliente ``agente_receitas.integration.cliente_site`` é o
   responsável pelo contrato v1 e por retries seguros.
 
 O payload local é convertido para o schema legado somente para compatibilidade de
-receitas. Não use este módulo para publicar dicas ou artigos.
+receitas. Não use este módulo para publicar dicas.
 """
 
 from __future__ import annotations
@@ -70,9 +68,11 @@ def resolve_base_url() -> str:
 
 def resolve_endpoint(tipo: str) -> str:
     base = resolve_base_url()
-    if base.endswith("/api/recipes") or base.endswith("/api/articles"):
+    if base.endswith("/api/recipes"):
         return base
-    return f"{base}/api/recipes" if tipo == "receita" else f"{base}/api/articles"
+    if tipo != "receita":
+        raise SiteAPIError("Este cliente aceita somente receitas; use o pipeline dedicado para dicas.")
+    return f"{base}/api/recipes"
 
 
 def select_token(status: str) -> str:
@@ -137,7 +137,7 @@ def _http_message(status: int, body: str) -> str:
     if status == 403:
         return "A API do site recusou o token (HTTP 403). Confira se corresponde a RECIPES_AGENT_TOKEN."
     if status == 404:
-        return "A rota do site não foi encontrada (HTTP 404). Confirme se /api/articles está implantada no ambiente escolhido."
+        return "A rota do site não foi encontrada (HTTP 404). Confirme se /api/recipes está implantada no ambiente escolhido."
     if status == 409:
         return "Slug duplicado (HTTP 409). Confira o artigo existente antes de qualquer novo envio."
     if status == 422:
@@ -153,8 +153,7 @@ def post_content(payload: dict, tipo: str, topic_slug: str) -> dict:
     """Envia uma vez pelo contrato legado de receitas, sem retry ou idempotência presumida."""
     if tipo != "receita":
         raise SiteAPIError(
-            "A integração legada só envia receitas. Dicas/artigos precisam usar o cliente "
-            "do contrato v1, com fontes, metadados e Idempotency-Key SHA-256."
+            "A integração legada só envia receitas. Dicas usam o cliente dedicado para /api/tips."
         )
     endpoint = resolve_endpoint(tipo)
     status = payload.get("status", "draft")
