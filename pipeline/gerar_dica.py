@@ -1,11 +1,12 @@
 """Geração e publicação automática de dicas culinárias pela API Chocolícia.
 
 O modelo de linguagem é selecionado pelo serviço compartilhado services.llm_service.
-O contrato de publicação é o ArtigoV1 do cliente oficial do agente.
+O contrato de publicação é a API dedicada /api/tips do site.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -14,7 +15,6 @@ from pathlib import Path
 from uuid import uuid4
 
 from agente_receitas.integration.cliente_site import ClienteSite
-from agente_receitas.integration.contratos import ArtigoV1
 from services import llm_service
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
@@ -60,17 +60,20 @@ def _recortar(texto: str, limite: int) -> str:
     return texto if len(texto) <= limite else texto[:limite - 1].rstrip() + "…"
 
 
-def _cover() -> dict:
+def _cover_image_url() -> str | None:
     bruto = os.getenv("CHOCOLICIA_COVER_JSON", "").strip()
     if not bruto:
-        raise DicaInvalida("Configure CHOCOLICIA_COVER_JSON com uma imagem válida para a publicação.")
+        return None
     try:
         cover = json.loads(bruto)
     except ValueError as exc:
         raise DicaInvalida("CHOCOLICIA_COVER_JSON não contém JSON válido.") from exc
     if not isinstance(cover, dict) or cover.get("mode") not in {"stock", "generate"}:
         raise DicaInvalida("CHOCOLICIA_COVER_JSON deve conter mode=stock ou mode=generate.")
-    return cover
+    url = cover.get("sourceImageUrl") if cover.get("mode") == "stock" else None
+    if url and not str(url).startswith("https://"):
+        raise DicaInvalida("A imagem de capa precisa usar HTTPS.")
+    return url
 
 
 def montar_payload(dados: dict, topico: str, meta: dict, status: str, run_id: str) -> dict:
@@ -80,42 +83,47 @@ def montar_payload(dados: dict, topico: str, meta: dict, status: str, run_id: st
     if len(resumo_bruto) < 20:
         resumo_bruto = f"{titulo}. {corpo}"
     resumo = _recortar(resumo_bruto, 160)
-    return {
-        "type": "tip",
+    payload = {
         "title": titulo,
         "slug": llm_service.gerar_slug(titulo),
         "excerpt": resumo,
-        "tipTopic": topico,
-        "bodyMd": corpo,
-        "structured": {"direct_answer": resumo},
-        "tags": ["dicas", TOPICOS[topico][0].lower().replace(" ", "-"), "chocolate"],
-        "relatedTopics": [],
-        "sources": [],
-        "cover": _cover(),
-        "coverImageAlt": _recortar(titulo, 240) if len(titulo) >= 8 else f"Dica: {titulo}",
+        "content": corpo,
+        "tipType": "dica",
+        "topicSlug": topico,
+        "agentTopicSlug": topico,
+        "tags": [],
         "status": status,
-        "aiModel": f"{meta.get('provedor', '')}:{meta.get('modelo', '')}"[:120],
+        "reviewStatus": "approved" if status == "published" else "pending",
+        "agentIdempotencyKey": hashlib.sha256(f"tip|{topico}|{run_id}".encode("utf-8")).hexdigest(),
         "generationMeta": {
             "run_id": run_id,
             "topic_slug": topico,
-            "prompt_version": "chocolicia-tips-1.0.0",
+            "prompt_version": "chocolicia-tips-1.1.0",
             "phase": int(os.getenv("AGENT_PHASE", "0")),
             "sources": [],
             "validators_version": "culinary-content-1.0.0",
+            "provider": meta.get("provedor", ""),
+            "model": meta.get("modelo", ""),
         },
     }
+    cover_url = _cover_image_url()
+    if cover_url:
+        payload["coverImageUrl"] = cover_url
+        payload["coverImageAlt"] = _recortar(titulo, 240) if len(titulo) >= 8 else f"Dica: {titulo}"
+    return payload
 
 
 def validar_payload(payload: dict) -> None:
     if len(payload["title"]) < 5:
         raise DicaInvalida("Título muito curto.")
-    if len(payload["bodyMd"]) < 600:
+    if len(payload["content"]) < 600:
         raise DicaInvalida("A dica precisa ter pelo menos 600 caracteres.")
-    if len(payload["bodyMd"]) > 30000:
+    if len(payload["content"]) > 30000:
         raise DicaInvalida("A dica excede o limite de 30000 caracteres aceito pelo site.")
-    if payload["tipTopic"] not in TOPICOS:
+    if payload["topicSlug"] not in TOPICOS:
         raise DicaInvalida("Tópico de dica inválido.")
-    ArtigoV1.model_validate(payload)
+    if not payload.get("agentIdempotencyKey") or len(payload["agentIdempotencyKey"]) > 128:
+        raise DicaInvalida("Chave de idempotência inválida.")
 
 
 def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_run: bool = False, publish: bool = False) -> dict:
@@ -162,10 +170,10 @@ def gerar_dica(assunto: str | None = "automatico", target: str = "preview", dry_
         contract_version=os.getenv("CONTRACT_VERSION", "1"),
         dry_run=False,
         allow_production=(target == "producao"),
-        articles_enabled=True,
+        articles_enabled=False,
         contract="v1",
     )
-    resposta_site = cliente.criar_artigo(payload, run_id=run_id)
+    resposta_site = cliente.criar_dica(payload, run_id=run_id)
     return {"enviado": True, "payload": payload, "site": resposta_site.__dict__}
 
 
