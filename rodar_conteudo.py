@@ -78,7 +78,7 @@ def run(args: argparse.Namespace) -> dict:
             ReceitaV1.model_validate(payload)
         if args.send:
             if args.tipo != "receita":
-                raise RuntimeError("Dicas devem usar pipeline.gerar_dica e o contrato ArtigoV1.")
+                raise RuntimeError("Este executor é exclusivo para receitas; use pipeline.gerar_dica para dicas.")
             base_url = os.getenv("SITE_BASE_URL", "").strip()
             if not base_url:
                 raise RuntimeError("SITE_BASE_URL não configurada para o ambiente selecionado.")
@@ -89,7 +89,6 @@ def run(args: argparse.Namespace) -> dict:
                 fase=int(os.getenv("AGENT_PHASE", "0")),
                 contract_version=os.getenv("CONTRACT_VERSION", "1"),
                 dry_run=False,
-                articles_enabled=True,
                 contract="v1",
             )
             result["site_response"] = cliente.criar_receita(payload, run_id=run_id).__dict__
@@ -106,7 +105,7 @@ def run(args: argparse.Namespace) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tipo", choices=("receita", "dica"), required=True)
+    parser.add_argument("--tipo", choices=("receita",), default="receita")
     parser.add_argument("--tema", required=True)
     parser.add_argument("--subcategoria")
     parser.add_argument("--assunto")
