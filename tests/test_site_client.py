@@ -78,7 +78,8 @@ class BaseUrlTests(unittest.TestCase):
     def test_endpoint_por_tipo(self):
         with patch.dict("os.environ", {"SITE_BASE_URL": "https://s.example.com"}, clear=True):
             self.assertEqual(site_client.resolve_endpoint("receita"), "https://s.example.com/api/recipes")
-            self.assertEqual(site_client.resolve_endpoint("dica"), "https://s.example.com/api/articles")
+            with self.assertRaisesRegex(SiteAPIError, "somente receitas"):
+                site_client.resolve_endpoint("dica")
 
 
 class TokenTests(unittest.TestCase):
@@ -176,7 +177,7 @@ class PostContentTests(unittest.TestCase):
     def test_cliente_legado_recusa_dicas_e_exige_cliente_v1(self):
         payload = {"status": "published", "type": "tip", "generationMeta": {"run_id": "run-2"}}
         with patch.dict("os.environ", self.ENV, clear=True), patch.object(site_client.httpx, "post") as post:
-            with self.assertRaisesRegex(SiteAPIError, "cliente do contrato v1"):
+            with self.assertRaisesRegex(SiteAPIError, "somente receitas"):
                 site_client.post_content(payload, "dica", "como-evitar")
         post.assert_not_called()
 
