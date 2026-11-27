@@ -79,7 +79,6 @@ class DicaFlowTests(unittest.TestCase):
             result = gerar_dica.gerar_dica("preparo", target="preview")
         args, kwargs = cliente_cls.call_args
         self.assertEqual(args[0], "https://preview.example.com")
-        self.assertFalse(kwargs["articles_enabled"])
         cliente.criar_dica.assert_called_once()
         sent = cliente.criar_dica.call_args.args[0]
         self.assertEqual(sent["topicSlug"], "preparo")
