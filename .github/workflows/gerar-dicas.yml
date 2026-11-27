@@ -5,7 +5,7 @@ name: Gerar dica (Chocolícia)
 #
 # Fica DESLIGADO até as variáveis do repositório AGENT_ENABLED e
 # AGENT_DICAS_ENABLED valerem "true".
-# O agente Python gera e publica a dica pela API v1 do site (/api/articles).
+# O agente Python envia dicas exclusivamente pela API do site (/api/tips).
 # A publicação automática usa SITE_TOKEN_PUBLISH do ambiente selecionado.
 
 on:
@@ -128,7 +128,7 @@ jobs:
             exit 1
           fi
           if [ "${DRY_RUN}" != "true" ] && [ -z "${SITE_TOKEN_DRAFT}" ]; then
-            echo "::error::Token de rascunho ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de RECIPES_AGENT_TOKEN do site."
+            echo "::error::Token de rascunho ausente. Configure SITE_TOKEN_DRAFT com o mesmo valor de TIPS_AGENT_TOKEN (ou RECIPES_AGENT_TOKEN, quando compartilhado) do site."
             exit 1
           fi
           ARGS=(--assunto "${ASSUNTO}" --target "${TARGET}")
