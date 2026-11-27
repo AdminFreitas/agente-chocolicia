@@ -1,11 +1,6 @@
 name: Verificar acesso OIDC ao Preview (somente leitura)
 
 on:
-  push:
-    branches:
-      - fix/gemini-client-lifecycle
-    paths:
-      - .github/workflows/verificar-acesso-preview.yml
   workflow_dispatch:
 
 permissions:
@@ -16,6 +11,8 @@ jobs:
   verify-preview:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      SITE_PREVIEW_URL: ${{ vars.SITE_BASE_URL_PREVIEW }}
     steps:
       - name: Emitir identidade OIDC do GitHub Actions
         id: oidc
@@ -26,63 +23,50 @@ jobs:
             core.setSecret(token);
             core.setOutput('token', token);
 
-      - name: Consultar tópicos do Preview (GET)
+      - name: Consultar dicas e receitas do Preview (GET)
         env:
           VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         shell: bash
         run: |
           set -euo pipefail
-          response="$(mktemp)"
-          status="$(curl --silent --show-error \
-            --output "$response" \
-            --write-out "%{http_code}" \
-            --header "x-vercel-trusted-oidc-idp-token: ${VERCEL_TRUSTED_OIDC_TOKEN}" \
-            "https://chocolicia-git-feat-agent-co-7c95ec-chocoliciaartedosdoces-9565.vercel.app/api/articles/topics")"
-          echo "HTTP status: $status"
-          cat "$response"
-          test "$status" = "200"
-          jq -e '.items | type == "array"' "$response" >/dev/null
-          echo "Consulta GET concluída. Nenhum conteúdo foi gerado ou publicado."
+          if [ -z "${SITE_PREVIEW_URL}" ]; then
+            echo "::error::Configure a variável SITE_BASE_URL_PREVIEW do GitHub Actions."
+            exit 1
+          fi
+          for endpoint in "/api/tips?limit=1" "/api/recipes?limit=1"; do
+            response="$(mktemp)"
+            status="$(curl --silent --show-error \
+              --output "$response" \
+              --write-out "%{http_code}" \
+              --header "x-vercel-trusted-oidc-idp-token: ${VERCEL_TRUSTED_OIDC_TOKEN}" \
+              "${SITE_PREVIEW_URL%/}${endpoint}")"
+            echo "${endpoint}: HTTP ${status}"
+            cat "$response"
+            test "$status" = "200"
+            jq -e '.items | type == "array"' "$response" >/dev/null
+          done
+          echo "Consultas GET concluídas; nenhum conteúdo foi criado ou publicado."
 
-      - name: Consultar lista de receitas do Preview (GET)
+      - name: Confirmar autenticação dos endpoints de ingestão (POST inválido)
         env:
           VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         shell: bash
         run: |
           set -euo pipefail
-          response="$(mktemp)"
-          status="$(curl --silent --show-error \
-            --output "$response" \
-            --write-out "%{http_code}" \
-            --header "x-vercel-trusted-oidc-idp-token: ${VERCEL_TRUSTED_OIDC_TOKEN}" \
-            "https://chocolicia-git-feat-agent-co-7c95ec-chocoliciaartedosdoces-9565.vercel.app/api/recipes?limit=1")"
-          echo "HTTP status: $status"
-          cat "$response"
-          test "$status" = "200"
-          jq -e '.items | type == "array"' "$response" >/dev/null
-          echo "Consulta GET de receitas concluída. Nenhum conteúdo foi criado ou alterado."
-
-      - name: Confirmar que a API exige Bearer válido (POST rejeitado sem escrita)
-        env:
-          VERCEL_TRUSTED_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for endpoint in articles recipes; do
+          for endpoint in tips recipes; do
             response="$(mktemp)"
             status="$(curl --silent --show-error \
               --output "$response" \
               --write-out "%{http_code}" \
               --request POST \
               --header "x-vercel-trusted-oidc-idp-token: ${VERCEL_TRUSTED_OIDC_TOKEN}" \
-              --header "X-Contract-Version: 1" \
               --header "Authorization: Bearer diagnostic-invalid-token-never-valid" \
               --header "Content-Type: application/json" \
               --data '{}' \
-              "https://chocolicia-git-feat-agent-co-7c95ec-chocoliciaartedosdoces-9565.vercel.app/api/${endpoint}")"
+              "${SITE_PREVIEW_URL%/}/api/${endpoint}")"
             echo "${endpoint}: HTTP ${status}"
             cat "$response"
             test "$status" = "401"
-            jq -e '.error.code == "unauthorized"' "$response" >/dev/null
+            jq -e '.code == "unauthorized"' "$response" >/dev/null
           done
-          echo "As duas rotas rejeitaram Bearer inválido antes de qualquer escrita."
+          echo "As duas rotas rejeitaram Bearer inválido; nenhum registro foi gravado."
